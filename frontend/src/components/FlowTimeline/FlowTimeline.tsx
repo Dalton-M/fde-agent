@@ -3,10 +3,10 @@ import StepNode from './StepNode'
 
 interface FlowTimelineProps {
   steps: SkillStep[]
-  activeStepIndex: number // which step is currently active (0-based); -1 = not started
-  completedCount: number // how many steps are fully done
-  currentStepLabel?: string // label for the progress bar right side (e.g. "⏳ Awaiting Approval")
-  elapsedPerStep?: Record<string, number> // step_id → elapsed_ms
+  activeStepIndex: number
+  completedCount: number
+  currentStepLabel?: string
+  elapsedPerStep?: Record<string, number>
 }
 
 function getConnectorStyle(
@@ -20,21 +20,15 @@ function getConnectorStyle(
   const rightDone = rightIndex < completedCount
 
   if (leftDone && (rightActive || (!rightDone && rightIndex > completedCount))) {
-    // Transition from done to active: gradient
     return {
-      background: 'linear-gradient(to right, rgb(99 102 241), rgb(51 65 85))',
-      height: 2,
-      flex: 1,
-      alignSelf: 'center',
-      flexShrink: 0,
+      background: 'linear-gradient(to right, #b45309, #f0ece4)',
+      height: 2, flex: 1, alignSelf: 'flex-start', marginTop: 11, flexShrink: 0,
     }
   }
-
   if (leftDone && rightDone) {
-    return { backgroundColor: 'rgb(99 102 241)', height: 2, flex: 1, alignSelf: 'center', flexShrink: 0 }
+    return { background: '#b45309', height: 2, flex: 1, alignSelf: 'flex-start', marginTop: 11, flexShrink: 0 }
   }
-
-  return { backgroundColor: 'rgb(51 65 85)', height: 2, flex: 1, alignSelf: 'center', flexShrink: 0 }
+  return { background: '#f0ece4', height: 2, flex: 1, alignSelf: 'flex-start', marginTop: 11, flexShrink: 0 }
 }
 
 function getStatus(
@@ -57,26 +51,25 @@ export default function FlowTimeline({
   const progressPct = steps.length > 0 ? (completedCount / steps.length) * 100 : 0
 
   return (
-    <div
-      className="bg-slate-900 border-b border-slate-700 px-6 py-3"
-      style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
-    >
+    <div style={{ background: '#fffdf7', padding: '14px 28px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
       {/* Progress bar row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span className="text-slate-400 shrink-0" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: 11, color: '#a8a29e', whiteSpace: 'nowrap', flexShrink: 0 }}>
           Step {completedCount} / {steps.length}
         </span>
-        <div
-          className="bg-slate-700 rounded-full overflow-hidden"
-          style={{ flex: 1, height: 6 }}
-        >
+        <div style={{ flex: 1, height: 4, background: '#f0ece4', borderRadius: 2, overflow: 'hidden' }}>
           <div
-            className="bg-indigo-500 h-full rounded-full transition-all duration-500"
-            style={{ width: `${progressPct}%` }}
+            style={{
+              width: `${progressPct}%`,
+              height: '100%',
+              background: 'linear-gradient(to right, #b45309, #d97706)',
+              borderRadius: 2,
+              transition: 'width 500ms ease',
+            }}
           />
         </div>
         {currentStepLabel && (
-          <span className="text-slate-400 shrink-0" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
+          <span style={{ fontSize: 11, color: '#a8a29e', whiteSpace: 'nowrap', flexShrink: 0 }}>
             {currentStepLabel}
           </span>
         )}
@@ -85,17 +78,14 @@ export default function FlowTimeline({
       {/* Step nodes row */}
       <div style={{ display: 'flex', alignItems: 'flex-start' }}>
         {steps.map((step, i) => (
-          <div
-            key={step.id}
-            style={{ display: 'flex', alignItems: 'flex-start', flex: i < steps.length - 1 ? 1 : undefined }}
-          >
+          <div key={step.id} style={{ display: 'flex', alignItems: 'flex-start', flex: i < steps.length - 1 ? 1 : undefined }}>
             <StepNode
               step={step}
               status={getStatus(i, completedCount, activeStepIndex)}
               elapsed={elapsedPerStep[step.id]}
             />
             {i < steps.length - 1 && (
-              <div style={{ ...getConnectorStyle(i, completedCount, activeStepIndex), marginTop: 14 }} />
+              <div style={getConnectorStyle(i, completedCount, activeStepIndex)} />
             )}
           </div>
         ))}
