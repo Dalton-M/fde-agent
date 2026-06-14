@@ -8,27 +8,29 @@ export function ValidationCard({ event }: ValidationCardProps) {
   const passed = event.status === 'passed'
 
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-lg p-4">
-      <div className="flex items-center justify-between mb-3">
-        <span className="font-semibold text-slate-100">Validation</span>
-        <span
-          className={`text-xs font-bold px-2 py-0.5 rounded ${
-            passed ? 'bg-green-900 text-green-400' : 'bg-red-900 text-red-400'
-          }`}
-        >
+    <div style={{ background: '#fff', border: '1px solid #e7e5e4', borderRadius: 8, padding: '12px 14px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: '#1c1917' }}>Validation</span>
+        <span style={{
+          fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+          background: passed ? '#dcfce7' : '#fee2e2',
+          color: passed ? '#15803d' : '#b91c1c',
+          textTransform: 'uppercase' as const,
+          letterSpacing: '.06em',
+        }}>
           {passed ? 'PASSED' : 'FAILED'}
         </span>
       </div>
 
-      <ul className="space-y-1.5">
+      <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
         {event.checks.map((check, i) => {
           const ok = check.status === 'passed'
           return (
-            <li key={i} className="flex items-start gap-2 text-sm">
-              <span className={ok ? 'text-green-400' : 'text-red-400'}>{ok ? '✓' : '✗'}</span>
-              <span className="text-slate-300">{check.name}</span>
+            <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 11 }}>
+              <span style={{ color: ok ? '#15803d' : '#b91c1c', flexShrink: 0 }}>{ok ? '✓' : '✗'}</span>
+              <span style={{ color: '#57534e' }}>{check.name}</span>
               {check.detail && (
-                <span className="text-slate-500 text-xs mt-0.5">— {check.detail}</span>
+                <span style={{ color: '#a8a29e', fontSize: 10 }}>— {check.detail}</span>
               )}
             </li>
           )
