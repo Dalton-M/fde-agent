@@ -95,9 +95,43 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-slate-900 text-slate-100 overflow-hidden">
-      {/* Sticky header: FlowTimeline + breadcrumb bar */}
-      <div className="sticky top-0 z-10 shrink-0">
+    <div
+      className="flex flex-col overflow-hidden"
+      style={{ height: 'calc(100vh / 1.25)', background: '#fffdf7', color: '#1c1917' }}
+    >
+      {/* Sticky header: brand row + FlowTimeline */}
+      <div className="shrink-0" style={{ position: 'sticky', top: 0, zIndex: 10, background: '#fffdf7', borderBottom: '1px solid #e7e5e4' }}>
+
+        {/* Brand row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 28px 10px', borderBottom: '1px solid #f5f0e8' }}>
+          {/* Brand mark */}
+          <div style={{ width: 28, height: 28, background: '#b45309', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fffdf7', fontSize: 14, fontFamily: "'DM Serif Display', serif", flexShrink: 0 }}>
+            S
+          </div>
+          <span style={{ fontFamily: "'DM Serif Display', serif", fontSize: 18, color: '#1c1917', letterSpacing: '-0.01em' }}>
+            SkillForge
+          </span>
+          <span style={{ color: '#d6d3d1', fontSize: 16, padding: '0 3px' }}>/</span>
+          <span style={{ fontFamily: "'DM Serif Display', serif", fontSize: 16, color: '#57534e', letterSpacing: '-0.01em' }}>
+            Daily Cash Reconciliation
+          </span>
+          {/* Status */}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{
+              width: 7, height: 7, borderRadius: '50%',
+              background: status === 'streaming' ? '#22c55e' : status === 'done' ? '#b45309' : '#a8a29e',
+              boxShadow: status === 'streaming' ? '0 0 0 3px rgba(34,197,94,.2)' : undefined,
+            }} />
+            <span style={{ fontSize: 11, color: '#a8a29e' }}>{status}</span>
+            {matchId && (
+              <span style={{ marginLeft: 8, fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: '#c8c0b8' }}>
+                {matchId}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Flow timeline */}
         <FlowTimeline
           steps={SKILL_STEPS}
           activeStepIndex={activeStepIndex}
@@ -105,36 +139,13 @@ export default function App() {
           currentStepLabel={currentStepLabel}
           elapsedPerStep={elapsedPerStep}
         />
-
-        {/* Header bar */}
-        <div className="flex items-center gap-4 px-8 py-4 border-b border-slate-700 bg-slate-900 shrink-0" style={{ minHeight: 52 }}>
-          <span className="text-sm text-slate-500 font-medium tracking-wide whitespace-nowrap">SkillForge</span>
-          <span className="text-slate-600 text-base px-1">›</span>
-          <span className="text-sm text-slate-300 font-semibold whitespace-nowrap">Daily Cash Reconciliation Skill</span>
-          {matchId && (
-            <>
-              <span className="text-slate-600 text-base px-1">›</span>
-              <span className="text-sm text-slate-500 font-mono truncate max-w-xs">{matchId}</span>
-            </>
-          )}
-          <div className="ml-auto flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${
-              status === 'streaming' ? 'bg-green-400 animate-pulse' :
-              status === 'done' ? 'bg-indigo-400' :
-              status === 'error' ? 'bg-red-400' :
-              'bg-slate-600'
-            }`} />
-            <span className="text-xs text-slate-500 capitalize">{status}</span>
-          </div>
-        </div>
       </div>
 
       {/* Main row: execution log + stats panel */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Execution log */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto" style={{ padding: '20px 24px' }}>
           {!matchId ? (
-            <div className="flex items-center justify-center h-32 text-slate-500 text-sm">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 128, color: '#a8a29e', fontSize: 14 }}>
               Loading skill match…
             </div>
           ) : (
@@ -149,7 +160,6 @@ export default function App() {
           )}
         </div>
 
-        {/* Stats panel */}
         <StatsPanel
           selectedSkillId={selectedSkillId}
           onSkillChange={setSelectedSkillId}
