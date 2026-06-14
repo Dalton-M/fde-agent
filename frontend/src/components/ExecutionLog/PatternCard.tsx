@@ -25,7 +25,15 @@ export function PatternCard({ event }: PatternCardProps) {
         </div>
       </div>
 
-      <p className="insight-summary">{event.summary}</p>
+      <section className="pattern-explanation-block">
+        <h4>Pattern definition</h4>
+        <p>{event.pattern_definition ?? event.summary}</p>
+      </section>
+
+      <section className="pattern-explanation-block">
+        <h4>Why this is repetitive</h4>
+        <p>{event.explanation ?? event.summary}</p>
+      </section>
 
       <div className="pattern-metrics">
         <div>

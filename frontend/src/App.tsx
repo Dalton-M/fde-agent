@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExecutionLog } from './components/ExecutionLog/ExecutionLog'
+import { SkillDashboard } from './components/SkillDashboard/SkillDashboard'
 import StatsPanel from './components/StatsPanel/StatsPanel'
 import { useSkillStream } from './hooks/useSkillStream'
-import { listMatches, approveMatch, rejectMatch } from './api/skillops'
-import type { ApprovalRequiredEvent, ExecutionCompleteEvent, ExecutionEvent } from './types/skill'
+import { listMatches, approveMatch, previewMatch, rejectMatch } from './api/skillops'
+import type { RunInputs } from './api/skillops'
+import type { ApprovalRequiredEvent, ExecutionCompleteEvent, ExecutionEvent, ReviewedWorkflow } from './types/skill'
 
 function latestApproval(events: ExecutionEvent[]): ApprovalRequiredEvent | null {
   for (let i = events.length - 1; i >= 0; i -= 1) {
@@ -55,6 +57,10 @@ export default function App() {
   const queryClient = useQueryClient()
   const [localDecision, setLocalDecision] = useState<{ decision: 'approved' | 'rejected'; actor?: string; timestamp: string } | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [dashboardError, setDashboardError] = useState<string | null>(null)
+  const [reviewedWorkflow, setReviewedWorkflow] = useState<ReviewedWorkflow | null>(null)
+  const [skillCreated, setSkillCreated] = useState(false)
+  const [streamRunKey, setStreamRunKey] = useState(0)
 
   const { data: matches, isLoading } = useQuery({
     queryKey: ['matches'],
@@ -64,7 +70,7 @@ export default function App() {
 
   const match = matches?.[0] ?? null
   const matchId = match?.match_id ?? null
-  const { events, status, error } = useSkillStream(matchId)
+  const { events, status, error } = useSkillStream(matchId, streamRunKey)
 
   const approvalEvent = latestApproval(events)
   const completionEvent = latestCompletion(events)
@@ -83,17 +89,51 @@ export default function App() {
     }
   }, [approvalEvent, outputRaw])
 
+  const handleWorkflowChange = useCallback((workflow: ReviewedWorkflow) => {
+    setReviewedWorkflow(workflow)
+  }, [])
+
+  const handleGenerateSkill = useCallback((workflow: ReviewedWorkflow) => {
+    setReviewedWorkflow(workflow)
+    setSkillCreated(true)
+  }, [])
+
   async function handleApprove() {
     if (!matchId) return
     setActionError(null)
     try {
-      await approveMatch(matchId)
+      await approveMatch(matchId, reviewedWorkflow)
       setLocalDecision({ decision: 'approved', actor: 'analyst_1', timestamp: new Date().toISOString() })
       await queryClient.invalidateQueries({ queryKey: ['matches'] })
       await queryClient.invalidateQueries({ queryKey: ['skillops'] })
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'The run could not be approved.')
     }
+  }
+
+  async function handleRunSkill(skillId: string, inputs: RunInputs) {
+    const selectedMatch = matches?.find(item => item.skill_id === skillId) ?? match
+    if (!selectedMatch) {
+      setDashboardError('No local workflow match is available to run.')
+      return
+    }
+    setDashboardError(null)
+    setActionError(null)
+    setLocalDecision(null)
+    setReviewedWorkflow(null)
+    setSkillCreated(false)
+    try {
+      await previewMatch(selectedMatch.match_id, inputs)
+      await queryClient.invalidateQueries({ queryKey: ['matches'] })
+      setStreamRunKey(value => value + 1)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    } catch (err) {
+      setDashboardError(err instanceof Error ? err.message : 'The workflow could not be started.')
+    }
+  }
+
+  function scrollToDashboard() {
+    document.getElementById('workflow-dashboard')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   async function handleReject() {
@@ -113,15 +153,21 @@ export default function App() {
     <div className="app-shell">
       <header className="app-header">
         <div>
-          <p className="eyebrow">Pattern to automation</p>
-          <h1>Auto-skill generator</h1>
+          <p className="eyebrow">In-house FDE</p>
+          <h1>FDE-in-house</h1>
           <p className="header-subtitle">
-            Detects repeated user behavior, drafts a reusable workflow, and asks before running it.
+            Watches repeated operating work, explains the pattern, drafts the FDE workflow, and asks before acting.
           </p>
         </div>
-        <div className={`status-pill status-${status}`}>
-          <span className="status-dot" />
-          <span>{currentStepLabel}</span>
+        <div className="header-actions">
+          <div className={`status-pill status-${status}`}>
+            <span className="status-dot" />
+            <span>{currentStepLabel}</span>
+          </div>
+          <button className="flow-jump-button" type="button" onClick={scrollToDashboard}>
+            <span className="flow-jump-icon" />
+            View workflow dashboard
+          </button>
         </div>
       </header>
 
@@ -138,16 +184,21 @@ export default function App() {
               status={status}
               error={error}
               actionError={actionError}
+              onWorkflowChange={handleWorkflowChange}
+              onGenerateSkill={handleGenerateSkill}
+              onRunGeneratedSkill={handleApprove}
+              skillCreated={skillCreated}
             />
           )}
         </section>
 
         <StatsPanel
-          skillId={match?.skill_id ?? 'daily_cash_reconciliation'}
           runStats={runStats}
           status={status}
         />
       </main>
+
+      <SkillDashboard activeSkillId={match?.skill_id} onRunSkill={handleRunSkill} runError={dashboardError} />
     </div>
   )
 }

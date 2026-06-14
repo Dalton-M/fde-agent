@@ -60,6 +60,8 @@ export interface PatternDetectedEvent {
   timestamp: string
   title: string
   summary: string
+  pattern_definition?: string
+  explanation?: string
   confidence: number
   episode_count: number
   sequence: string[]
@@ -78,6 +80,7 @@ export interface PatternDetectedEvent {
 }
 
 export interface SkillWorkflowStep {
+  id?: string
   order: number
   title: string
   summary: string
@@ -106,6 +109,14 @@ export interface SkillGeneratedEvent {
     files_modified: string[]
     safety_checks: string[]
   }
+}
+
+export interface ReviewedWorkflow {
+  title?: string
+  description?: string
+  triggers: SkillTriggerCondition[]
+  steps: SkillWorkflowStep[]
+  expected_outcome: SkillGeneratedEvent['expected_outcome']
 }
 
 export interface ApprovalRequiredEvent {

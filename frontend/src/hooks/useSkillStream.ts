@@ -48,7 +48,7 @@ function skillStreamReducer(state: SkillStreamState, action: SkillStreamAction):
   }
 }
 
-export function useSkillStream(matchId: string | null): UseSkillStreamResult {
+export function useSkillStream(matchId: string | null, resetKey = 0): UseSkillStreamResult {
   const [state, dispatch] = useReducer(skillStreamReducer, initialState)
   const esRef = useRef<EventSource | null>(null)
 
@@ -83,7 +83,7 @@ export function useSkillStream(matchId: string | null): UseSkillStreamResult {
       es.close()
       esRef.current = null
     }
-  }, [matchId])
+  }, [matchId, resetKey])
 
   return state
 }

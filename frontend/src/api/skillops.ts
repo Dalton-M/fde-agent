@@ -1,17 +1,27 @@
 import client from './client'
-import type { SkillMatch, SkillOpsMetrics, SkillSummary } from '../types/skill'
+import type { ReviewedWorkflow, SkillMatch, SkillOpsMetrics, SkillSummary } from '../types/skill'
 
 export async function listMatches(): Promise<SkillMatch[]> {
   const { data } = await client.get<SkillMatch[]>('/api/skills/matches')
   return data
 }
 
-export async function approveMatch(matchId: string): Promise<void> {
-  await client.post(`/api/skills/matches/${matchId}/approve`)
+export interface RunInputs {
+  incomingItem?: string
+  sourceFile?: string
+  targetFile?: string
+}
+
+export async function approveMatch(matchId: string, reviewedWorkflow?: ReviewedWorkflow | null): Promise<void> {
+  await client.post(`/api/skills/matches/${matchId}/approve`, reviewedWorkflow ? { reviewed_workflow: reviewedWorkflow } : {})
 }
 
 export async function rejectMatch(matchId: string): Promise<void> {
   await client.post(`/api/skills/matches/${matchId}/reject`)
+}
+
+export async function previewMatch(matchId: string, runInputs?: RunInputs): Promise<void> {
+  await client.post(`/api/skills/matches/${matchId}/preview`, runInputs ? { run_inputs: runInputs } : {})
 }
 
 export async function getSkillOps(skillId: string): Promise<SkillOpsMetrics> {

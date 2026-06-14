@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { ExecutionEvent, StepCompletedEvent, StepStartedEvent } from '../../types/skill'
+import type { ExecutionEvent, ReviewedWorkflow, StepCompletedEvent, StepStartedEvent } from '../../types/skill'
 import { StepCard } from './StepCard'
 import { ApprovalCard } from './ApprovalCard'
 import { ValidationCard } from './ValidationCard'
@@ -14,6 +14,10 @@ interface ExecutionLogProps {
   status?: 'idle' | 'connecting' | 'streaming' | 'paused' | 'done' | 'error'
   error?: string
   actionError?: string | null
+  onWorkflowChange?: (workflow: ReviewedWorkflow) => void
+  onGenerateSkill?: (workflow: ReviewedWorkflow) => void
+  onRunGeneratedSkill?: () => void
+  skillCreated?: boolean
 }
 
 type RenderItem =
@@ -23,7 +27,25 @@ type RenderItem =
   | { kind: 'approval'; event: ExecutionEvent }
   | { kind: 'validation'; event: ExecutionEvent }
 
-export function ExecutionLog({ events, onApprove, onReject, decision, status, error, actionError }: ExecutionLogProps) {
+function stageClass(isComplete: boolean, isActive: boolean): string {
+  if (isComplete) return 'complete'
+  if (isActive) return 'active'
+  return 'idle'
+}
+
+export function ExecutionLog({
+  events,
+  onApprove,
+  onReject,
+  decision,
+  status,
+  error,
+  actionError,
+  onWorkflowChange,
+  onGenerateSkill,
+  onRunGeneratedSkill,
+  skillCreated,
+}: ExecutionLogProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -55,17 +77,30 @@ export function ExecutionLog({ events, onApprove, onReject, decision, status, er
 
   const awaitingApproval = events.some(event => event.type === 'approval_required') && !decision
   const isRunning = (status === 'connecting' || status === 'streaming') && !awaitingApproval
+  const hasPattern = events.some(event => event.type === 'pattern_detected')
+  const hasWorkflow = events.some(event => event.type === 'skill_generated')
 
   return (
     <div className="execution-log">
       <div className="section-heading">
         <div>
           <p className="eyebrow">Live workflow</p>
-          <h2>Skill generation run</h2>
+          <h2>FDE workflow run</h2>
           <p className="section-subtitle">
-            The agent is turning the detected pattern into a reusable automation.
+            The in-house FDE is turning the detected pattern into a reviewed workflow.
           </p>
         </div>
+      </div>
+
+      <div className="middle-action-row" aria-label="Generation stages">
+        <button className={`flow-step-button ${stageClass(hasPattern, isRunning && !hasPattern)}`} type="button" disabled>
+          <span className="flow-step-icon" />
+          Spot Repetitive Pattern
+        </button>
+        <button className={`flow-step-button ${stageClass(hasWorkflow, hasPattern && isRunning && !hasWorkflow)}`} type="button" disabled>
+          <span className="flow-step-icon" />
+          Generate Skills
+        </button>
       </div>
 
       {renderOrder.map((item, index) => {
@@ -93,7 +128,16 @@ export function ExecutionLog({ events, onApprove, onReject, decision, status, er
         }
 
         if (item.kind === 'skill' && item.event.type === 'skill_generated') {
-          return <GeneratedSkillCard key={`skill-${index}`} event={item.event} />
+          return (
+            <GeneratedSkillCard
+              key={`skill-${index}-${item.event.timestamp}`}
+              event={item.event}
+              onChange={onWorkflowChange}
+              onGenerateSkill={onGenerateSkill}
+              onRunGeneratedSkill={onRunGeneratedSkill}
+              skillCreated={skillCreated}
+            />
+          )
         }
 
         if (item.kind === 'validation' && item.event.type === 'validation_result') {

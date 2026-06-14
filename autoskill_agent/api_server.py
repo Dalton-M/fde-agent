@@ -111,6 +111,76 @@ def as_string_list(value: Any) -> list[str]:
     return [clean_display_text(str(item)) for item in value if item is not None]
 
 
+def plain_sequence_label(value: Any) -> str:
+    labels = {
+        "email_received": "Receive the bank transaction email",
+        "spreadsheet_row_updated": "Update the matching spreadsheet rows",
+        "outbound_message_created": "Draft the result reply",
+        "read bank attachment rows": "Read the bank attachment rows",
+        "match transactions against Payment Export": "Compare rows with the finance workbook",
+        "compute Amount Diff": "Calculate the amount difference",
+        "preview Daily Reconciliation row updates": "Prepare the spreadsheet update",
+        "draft summary reply": "Draft the result reply",
+        "write audit log": "Save the local run record",
+    }
+    text = str(value)
+    return labels.get(text, humanize(text))
+
+
+def pattern_definition(root: Path, match: dict[str, Any], candidate: dict[str, Any]) -> str:
+    event = find_event(root, match["trigger_event_id"]) or {}
+    payload = event.get("payload", {}) if isinstance(event.get("payload"), dict) else {}
+    subject = payload.get("subject") or "a daily bank transaction email"
+    sender = payload.get("from") or "the bank operations sender"
+    evidence = candidate.get("evidence", {}) if isinstance(candidate.get("evidence"), dict) else {}
+    workbook = filename(str(evidence.get("target_artifact") or "the finance workbook"))
+    sheet = evidence.get("target_sheet") or "the tracking sheet"
+    return (
+        f"This pattern is a daily bank email workflow: when {sender} sends '{subject}', "
+        f"the finance team opens the attached transaction spreadsheet, checks the rows against {workbook}, "
+        f"updates the {sheet} sheet, separates exceptions for review, and saves a reply draft."
+    )
+
+
+def pattern_explanation(candidate: dict[str, Any]) -> str:
+    pattern = candidate.get("pattern", {}) if isinstance(candidate.get("pattern"), dict) else {}
+    evidence = candidate.get("evidence", {}) if isinstance(candidate.get("evidence"), dict) else {}
+    episode_count = int(pattern.get("episode_count") or 0)
+    if episode_count == 0:
+        episodes = evidence.get("episode_ids") or evidence.get("episodes") or []
+        episode_count = len(episodes) if isinstance(episodes, list) else 0
+    workbook = filename(str(evidence.get("target_artifact") or "the same workbook"))
+    target_sheet = evidence.get("target_sheet") or "the same spreadsheet tab"
+    return (
+        f"It is repetitive because the same email-driven workflow appeared in {episode_count or 3} examples: "
+        f"the attachment follows the bank_transactions_*.xlsx naming pattern, the rows are checked against {workbook}, "
+        f"the same {target_sheet} fields are filled, and the reply always reports how many rows matched plus which rows need review. "
+        "The date, row range, and amounts change; the work pattern stays the same."
+    )
+
+
+def concrete_pattern_signals(candidate: dict[str, Any]) -> list[str]:
+    pattern = candidate.get("pattern", {}) if isinstance(candidate.get("pattern"), dict) else {}
+    evidence = candidate.get("evidence", {}) if isinstance(candidate.get("evidence"), dict) else {}
+    episode_count = int(pattern.get("episode_count") or 0)
+    if episode_count == 0:
+        episodes = evidence.get("episode_ids") or evidence.get("episodes") or []
+        episode_count = len(episodes) if isinstance(episodes, list) else 0
+    workbook = filename(str(evidence.get("target_artifact") or "the same workbook"))
+    target_sheet = evidence.get("target_sheet") or "the same spreadsheet tab"
+    fields = as_string_list(evidence.get("common_fields"))
+    important_fields = [field for field in fields if field in {"Match Status", "Exception Reason", "Reviewer", "Reviewed At", "Source Email ID"}]
+    signals = [
+        f"{episode_count or 3} prior examples used the same bank email workflow",
+        "Each example used an attachment named like bank_transactions_*.xlsx",
+        f"Each example updated {workbook} / {target_sheet}",
+    ]
+    if important_fields:
+        signals.append(f"Each example filled the same review fields: {', '.join(important_fields)}")
+    signals.append("Each example ended with a reply draft summarizing matched rows and review items")
+    return signals
+
+
 def issue_list_from_candidate(candidate: dict[str, Any]) -> list[str]:
     guardrails = as_string_list(candidate.get("suggested_guardrails"))
     if guardrails:
@@ -279,21 +349,24 @@ def pattern_detected_event(root: Path, match: dict[str, Any], skill: dict[str, A
         episodes = evidence.get("episode_ids") or evidence.get("episodes") or []
         episode_count = len(episodes) if isinstance(episodes, list) else 0
     common_sequence = pattern.get("common_sequence") or []
-    sequence = [humanize(item) for item in common_sequence]
+    sequence = [plain_sequence_label(item) for item in common_sequence]
     if not sequence:
-        sequence = [humanize(action.get("type", "workflow step")) for action in candidate.get("observed_actions", []) if isinstance(action, dict)]
+        sequence = [
+            plain_sequence_label(action.get("type", "workflow step"))
+            for action in candidate.get("observed_actions", [])
+            if isinstance(action, dict)
+        ]
     return {
         "type": "pattern_detected",
         "timestamp": timestamp,
-        "title": "Repeated workflow found",
-        "summary": clean_display_text(
-            summary.get("one_liner")
-            or "The detector found the same user workflow happening across multiple examples."
-        ),
+        "title": "Daily bank email workflow found",
+        "summary": pattern_definition(root, match, candidate),
+        "pattern_definition": pattern_definition(root, match, candidate),
+        "explanation": pattern_explanation(candidate),
         "confidence": float(candidate.get("confidence") or (skill.get("source_candidate") or {}).get("confidence") or 0),
         "episode_count": episode_count,
         "sequence": sequence,
-        "signals": as_string_list(pattern.get("similarity_reason")),
+        "signals": concrete_pattern_signals(candidate),
         "issues": issue_list_from_candidate(candidate),
         "evidence": {
             "episodes": as_string_list(evidence.get("episode_ids") or evidence.get("episodes")),
@@ -347,9 +420,11 @@ def generated_skill_event(skill: dict[str, Any], timestamp: str) -> dict[str, An
     return {
         "type": "skill_generated",
         "timestamp": timestamp,
-        "title": "Generated workflow skill",
-        "summary": clean_display_text(
-            str(skill.get("description") or expected.get("summary") or "A reusable workflow skill was generated from the detected pattern.")
+        "title": "Generated FDE workflow",
+        "summary": (
+            "When the daily bank transaction email arrives, this FDE workflow reads the attached spreadsheet, "
+            "checks the rows against the finance workbook, separates items that need review, and creates a new "
+            "updated spreadsheet after approval."
         ),
         "issues": as_string_list(expected.get("side_effects") or skill.get("guardrails")),
         "triggers": triggers,
@@ -378,11 +453,11 @@ def pre_approval_events(root: Path, match_id: str) -> list[dict[str, Any]]:
     target_sheet = update.get("target_sheet", "Daily Reconciliation")
     exception_word = "item" if stats["exceptions"] == 1 else "items"
     return [
-        event_step_started("trigger", "Detect pattern", now, "recent activity"),
+        event_step_started("trigger", "Spot Repetitive Pattern", now, "recent activity"),
         event_step_completed(
             "trigger",
-            "Detect pattern",
-            "Found a repeated workflow in the latest user activity.",
+            "Spot Repetitive Pattern",
+            "Found the daily bank email workflow repeated across prior examples.",
             120,
             now,
             trigger_raw,
@@ -397,11 +472,11 @@ def pre_approval_events(root: Path, match_id: str) -> list[dict[str, Any]]:
             now,
             {"input": preview.get("input"), "transactions": stats["total"]},
         ),
-        event_step_started("build_reconciliation_preview", "Draft automation", now, target_sheet),
+        event_step_started("build_reconciliation_preview", "Generate Skills", now, target_sheet),
         event_step_completed(
             "build_reconciliation_preview",
-            "Draft automation",
-            f"Prepared a reusable workflow with {stats['matched']} automated records and {stats['exceptions']} review {exception_word}.",
+            "Generate Skills",
+            f"Generated an editable FDE workflow that can handle {stats['matched']} records and leave {stats['exceptions']} {exception_word} for review.",
             2600,
             now,
             update,
@@ -523,9 +598,15 @@ class SkillForgeHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         path = urlparse(self.path).path
         try:
+            body = self.read_json_body()
             match = re.fullmatch(r"/api/skills/matches/([^/]+)/approve", path)
             if match:
-                execution = skillgen.approve_match(self.root, match.group(1), actor="analyst_1")
+                execution = skillgen.approve_match(
+                    self.root,
+                    match.group(1),
+                    actor="analyst_1",
+                    reviewed_workflow=body.get("reviewed_workflow") if isinstance(body, dict) else None,
+                )
                 return self.send_json(execution)
             match = re.fullmatch(r"/api/skills/matches/([^/]+)/reject", path)
             if match:
@@ -534,10 +615,26 @@ class SkillForgeHandler(BaseHTTPRequestHandler):
             match = re.fullmatch(r"/api/skills/matches/([^/]+)/preview", path)
             if match:
                 preview = skillgen.preview_match(self.root, match.group(1))
+                if isinstance(body, dict) and body:
+                    preview["run_inputs"] = body.get("run_inputs", body)
+                    skillgen.write_json(skillgen_paths(self.root).matches_dir / f"{match.group(1)}.preview.json", preview)
                 return self.send_json(preview)
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
         except Exception as exc:
             self.send_json({"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def read_json_body(self) -> dict[str, Any]:
+        length = int(self.headers.get("Content-Length") or "0")
+        if length <= 0:
+            return {}
+        raw = self.rfile.read(length)
+        if not raw:
+            return {}
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except json.JSONDecodeError:
+            return {}
+        return payload if isinstance(payload, dict) else {}
 
     def send_json(self, payload: Any, status: HTTPStatus = HTTPStatus.OK) -> None:
         data = json.dumps(payload, sort_keys=True).encode("utf-8")

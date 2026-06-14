@@ -62,7 +62,7 @@ export function ApprovalCard({ event, onApprove, onReject, decided }: ApprovalCa
       <div className="approval-header">
         <div>
           <p className="eyebrow">Approval required</p>
-          <h3>Approve this generated skill run</h3>
+          <h3>Approve this FDE workflow run</h3>
         </div>
         <span className="review-indicator" aria-label="Waiting for review" />
       </div>

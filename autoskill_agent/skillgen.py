@@ -1562,10 +1562,10 @@ def workflow_steps_from_section_a_candidate(candidate: dict[str, Any]) -> list[d
         {
             "id": "require_approval",
             "order": approval_order,
-            "title": "Request human approval",
+            "title": "Request review",
             "type": "human_approval",
             "action_type": "require_human_approval",
-            "summary": "Ask a reviewer to approve the workbook update and reply draft before any write occurs.",
+            "summary": "Ask a reviewer to approve the spreadsheet update and reply draft before any file is created.",
             "inputs": ["reconciliation_preview", "summary_reply_draft"],
             "outputs": ["approval_decision"],
             "approval_text": "Apply generated updates and create local draft outputs?",
@@ -1575,10 +1575,10 @@ def workflow_steps_from_section_a_candidate(candidate: dict[str, Any]) -> list[d
         {
             "id": "create_reconciled_spreadsheet",
             "order": len(steps) + 1,
-            "title": "Create reconciled spreadsheet",
+            "title": "Create updated spreadsheet",
             "type": "write_output",
             "action_type": "write_xlsx_update",
-            "summary": f"After approval, create a new spreadsheet containing the previewed {evidence['target_sheet']} updates.",
+            "summary": "After approval, create a new spreadsheet containing the reviewed row updates.",
             "inputs": ["approval_decision", "reconciliation_preview"],
             "outputs": ["reconciled_spreadsheet"],
             "target": {"workbook": evidence["target_artifact"], "sheet": evidence["target_sheet"]},
@@ -1589,10 +1589,10 @@ def workflow_steps_from_section_a_candidate(candidate: dict[str, Any]) -> list[d
         {
             "id": "write_audit_log",
             "order": len(steps) + 1,
-            "title": sentence_title(audit_action or "write audit log"),
+            "title": "Save run record",
             "type": "validate",
             "action_type": "write_audit_log",
-            "summary": "Record validation results, output paths, and SkillOps usage evidence.",
+            "summary": "Save the output paths and final check results in the local run record.",
             "inputs": ["reconciled_spreadsheet", "summary_reply_draft"],
             "outputs": ["audit_event", "skillops_usage_event"],
         }
@@ -1623,15 +1623,15 @@ def sentence_title(value: str) -> str:
 def summary_for_section_a_action(action: str, evidence: dict[str, Any]) -> str:
     text = action.lower()
     if "read" in text and "attachment" in text:
-        return "Read the inbound attachment rows that triggered the repeated workflow."
+        return "Read the spreadsheet attached to the bank email."
     if "match" in text:
-        return f"Compare inbound rows against supporting workbook data for {evidence['target_sheet']}."
+        return "Compare the bank rows with the finance workbook."
     if "preview" in text:
-        return f"Prepare row updates for {evidence['target_sheet']} without writing them yet."
+        return "Prepare the spreadsheet changes without writing them yet."
     if "fill" in text:
-        return f"Populate the {action.replace('fill ', '')} field in the proposed workbook update."
+        return f"Fill the {action.replace('fill ', '')} field in the proposed spreadsheet update."
     if "draft" in text or "reply" in text:
-        return "Create a local outbound reply draft summarizing the run result."
+        return "Create a local reply draft with the matched count and the items that need review."
     return f"Perform the repeated action: {action}."
 
 
@@ -1660,8 +1660,8 @@ def expected_outcome_from_section_a_candidate(candidate: dict[str, Any]) -> dict
     workbook = evidence["target_artifact"]
     return {
         "summary": (
-            f"The approved run creates a new reconciled spreadsheet for {evidence['target_sheet']}, "
-            "creates any required local draft outputs, and records audit/SkillOps evidence without forbidden side effects."
+            "After approval, the workflow creates a new updated spreadsheet, lists the rows that need review, "
+            "saves a local reply draft, and records the run locally without sending anything."
         ),
         "files_created": [
             "workspace/workbooks/generated/{source_workbook}_{event_date}_reconciled.xlsx",
@@ -1673,10 +1673,10 @@ def expected_outcome_from_section_a_candidate(candidate: dict[str, Any]) -> dict
 
 
 def description_from_section_a_candidate(candidate: dict[str, Any]) -> str:
-    evidence = candidate["evidence"]
     return (
-        f"Automates the repeated {candidate['pattern']['workflow_family']} workflow by reading the trigger input, "
-        f"previewing updates to {evidence['target_sheet']}, drafting local outputs, and creating approved spreadsheet outputs."
+        "When the daily bank transaction email arrives, this workflow reads the attached spreadsheet, "
+        "checks the rows against the finance workbook, prepares the spreadsheet update, separates items that need review, "
+        "and creates the approved output files locally."
     )
 
 
@@ -2013,20 +2013,20 @@ def default_workflow_steps(
         {
             "id": "parse_bank_transactions",
             "order": 1,
-            "title": "Parse bank transaction attachment",
+            "title": "Read the bank spreadsheet",
             "type": "read_input",
             "action_type": "parse_xlsx_attachment",
-            "summary": "Read the matching bank_transactions_*.xlsx attachment and parse transaction rows.",
+            "summary": "Read the bank_transactions_*.xlsx attachment and collect the transaction rows.",
             "inputs": ["resources.inputs.daily_bank_transaction_file"],
             "outputs": ["transactions"],
         },
         {
             "id": "build_reconciliation_preview",
             "order": 2,
-            "title": "Build reconciliation preview",
+            "title": "Prepare spreadsheet changes",
             "type": "transform",
             "action_type": "preview_reconciliation_update",
-            "summary": f"Compare parsed transactions against the {target_sheet} sheet without writing changes.",
+            "summary": "Compare the bank rows with the finance workbook and prepare the changes without writing files yet.",
             "inputs": ["transactions", "resources.inputs.cash_recon_workbook"],
             "outputs": ["reconciliation_preview"],
             "target": {"workbook": workbook_path, "sheet": target_sheet},
@@ -2034,7 +2034,7 @@ def default_workflow_steps(
         {
             "id": "flag_exceptions",
             "order": 3,
-            "title": "Flag exceptions",
+            "title": "List items that need review",
             "type": "analyze",
             "action_type": "flag_reconciliation_exceptions",
             "summary": "Identify unmatched rows and amount variances that need review.",
@@ -2044,10 +2044,10 @@ def default_workflow_steps(
         {
             "id": "draft_summary_reply",
             "order": 4,
-            "title": "Draft exception summary reply",
+            "title": "Draft the result reply",
             "type": "draft_output",
             "action_type": "draft_email_reply",
-            "summary": "Create a local reply draft summarizing matched transactions and exceptions.",
+            "summary": "Create a local reply draft with the matched count and the items that need review.",
             "template": "cash_recon_exception_summary",
             "inputs": ["reconciliation_preview", "exceptions"],
             "outputs": ["summary_reply_draft"],
@@ -2056,10 +2056,10 @@ def default_workflow_steps(
         {
             "id": "require_approval",
             "order": 5,
-            "title": "Request human approval",
+            "title": "Request review",
             "type": "human_approval",
             "action_type": "require_human_approval",
-            "summary": "Ask a reviewer to approve the workbook update and reply draft before any write occurs.",
+            "summary": "Ask a reviewer to approve the spreadsheet update and reply draft before any file is created.",
             "inputs": ["reconciliation_preview", "summary_reply_draft"],
             "outputs": ["approval_decision"],
             "approval_text": "Apply reconciliation update and create reply draft?",
@@ -2067,10 +2067,10 @@ def default_workflow_steps(
         {
             "id": "create_reconciled_spreadsheet",
             "order": 6,
-            "title": "Create reconciled spreadsheet",
+            "title": "Create updated spreadsheet",
             "type": "write_output",
             "action_type": "write_xlsx_update",
-            "summary": "After approval, create a new reconciled spreadsheet artifact.",
+            "summary": "After approval, create a new spreadsheet with the reviewed updates.",
             "inputs": ["approval_decision", "reconciliation_preview"],
             "outputs": ["reconciled_spreadsheet"],
             "target": {"workbook": workbook_path, "sheet": target_sheet},
@@ -2079,10 +2079,10 @@ def default_workflow_steps(
         {
             "id": "write_audit_log",
             "order": 7,
-            "title": "Validate and write audit log",
+            "title": "Save run record",
             "type": "validate",
             "action_type": "write_audit_log",
-            "summary": "Record validation results, outputs, and side-effect checks for SkillOps analytics.",
+            "summary": "Save the output paths and final check results in the local run record.",
             "inputs": ["reconciled_spreadsheet", "summary_reply_draft"],
             "outputs": ["audit_event", "skillops_usage_event"],
         },
@@ -2092,8 +2092,8 @@ def default_workflow_steps(
 def default_expected_outcome(workbook_path: str = "workspace/workbooks/cash_recon.xlsx") -> dict[str, Any]:
     return {
         "summary": (
-            "The approved run creates a new reconciled spreadsheet locally, creates an exception "
-            "summary reply draft, and writes audit/SkillOps evidence without sending email or using the network."
+            "After approval, the workflow creates a new updated spreadsheet locally, saves a reply draft, "
+            "and records the run without sending email or using the network."
         ),
         "files_created": [
             "workspace/workbooks/generated/{source_workbook}_{event_date}_reconciled.xlsx",
@@ -2104,7 +2104,7 @@ def default_expected_outcome(workbook_path: str = "workspace/workbooks/cash_reco
             "workspace/events/events.jsonl",
         ],
         "side_effects": [
-            "Workbook update occurs only after human approval",
+            "Spreadsheet output is created only after review",
             "Email remains a draft and is not sent",
             "Network access is not used",
         ],
@@ -2793,7 +2793,7 @@ def preview_match(root: Path | str, match_id: str) -> dict[str, Any]:
     exception_word = "exception" if len(exceptions) == 1 else "exceptions"
     verb = "requires" if len(exceptions) == 1 else "require"
     draft = (
-        f"Daily reconciliation complete. Created reconciled spreadsheet: {Path(output_workbook).name}. "
+        f"Bank transaction update complete. Created updated spreadsheet: {Path(output_workbook).name}. "
         f"{len(matched)} transactions matched; {len(exceptions)} {exception_word} {verb} review before sending."
     )
     preview = {
@@ -2842,7 +2842,12 @@ def preview_match(root: Path | str, match_id: str) -> dict[str, Any]:
     return preview
 
 
-def approve_match(root: Path | str, match_id: str, actor: str = "analyst_1") -> dict[str, Any]:
+def approve_match(
+    root: Path | str,
+    match_id: str,
+    actor: str = "analyst_1",
+    reviewed_workflow: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     p = paths(root)
     match = read_json(p.matches_dir / f"{match_id}.json")
     skill = load_skill_from_registry(root, match["skill_id"], match["skill_version"])
@@ -2905,6 +2910,21 @@ def approve_match(root: Path | str, match_id: str, actor: str = "analyst_1") -> 
         "network_used": False,
         "email_sent": False,
     }
+    if isinstance(reviewed_workflow, dict) and reviewed_workflow:
+        execution["reviewed_workflow"] = reviewed_workflow
+        reviewed_dir = p.runtime_dir / "reviewed_workflows"
+        reviewed_dir.mkdir(parents=True, exist_ok=True)
+        write_json(
+            reviewed_dir / f"{match_id}.json",
+            {
+                "match_id": match_id,
+                "skill_id": skill_id,
+                "skill_version": skill["version"],
+                "reviewed_at": execution_timestamp,
+                "reviewed_by": actor,
+                "workflow": reviewed_workflow,
+            },
+        )
     append_event(p.event_log, {"id": execution["execution_id"], **execution})
     record_usage(p.registry_db, "skill_executed", skill_id, skill["version"], actor, "approved", execution)
     with closing(sqlite3.connect(p.registry_db)) as con:

@@ -1,4 +1,3 @@
-import { useSkillList, useSkillOps } from '../../hooks/useSkillOps'
 import MetricCard from './MetricCard'
 
 interface RunStats {
@@ -9,15 +8,8 @@ interface RunStats {
 }
 
 interface StatsPanelProps {
-  skillId: string
   runStats: RunStats | null
   status: 'idle' | 'connecting' | 'streaming' | 'paused' | 'done' | 'error'
-}
-
-function percent(value: number | undefined): string {
-  if (value === undefined) return '0%'
-  const bounded = Math.max(0, Math.min(1, value))
-  return `${Math.round(bounded * 100)}%`
 }
 
 function fileName(path: string): string {
@@ -41,11 +33,7 @@ function statusLabel(status: StatsPanelProps['status']): string {
   }
 }
 
-export default function StatsPanel({ skillId, runStats, status }: StatsPanelProps) {
-  const { data: metrics } = useSkillOps(skillId)
-  const { data: skills } = useSkillList()
-  const activeSkills = skills?.filter(skill => skill.status !== 'disabled').length ?? 0
-
+export default function StatsPanel({ runStats, status }: StatsPanelProps) {
   return (
     <aside className="stats-panel">
       <div>
@@ -65,18 +53,6 @@ export default function StatsPanel({ skillId, runStats, status }: StatsPanelProp
           <strong>{fileName(runStats.outputFile)}</strong>
         </div>
       )}
-
-      <div className="panel-divider" />
-
-      <div>
-        <p className="eyebrow">Automation history</p>
-        <div className="metric-stack compact">
-          <MetricCard label="Generated skills" value={activeSkills} />
-          <MetricCard label="Patterns found" value={metrics?.matches ?? 0} />
-          <MetricCard label="Approved runs" value={metrics?.runs ?? 0} />
-          <MetricCard label="Successful runs" value={percent(metrics?.success_rate)} tone={(metrics?.success_rate ?? 0) >= 0.9 ? 'good' : 'neutral'} />
-        </div>
-      </div>
     </aside>
   )
 }
