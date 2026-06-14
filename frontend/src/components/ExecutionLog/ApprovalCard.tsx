@@ -12,17 +12,14 @@ export function ApprovalCard({ event, onApprove, onReject, decided }: ApprovalCa
   if (decided) {
     const isApproved = decided.decision === 'approved'
     return (
-      <div className="bg-slate-800 border border-slate-700 rounded-lg p-3 opacity-75">
-        <div className="flex items-center justify-between">
-          <span className={isApproved ? 'text-green-400' : 'text-red-400'}>
-            {isApproved ? '✓' : '✗'}{' '}
-            {isApproved ? 'Approved' : 'Rejected'}
-            {decided.actor ? ` by ${decided.actor}` : ''}
-          </span>
-          <span className="text-slate-500 text-xs">
-            {new Date(decided.timestamp).toLocaleTimeString()}
-          </span>
-        </div>
+      <div style={{ background: '#fff', border: '1px solid #e7e5e4', borderRadius: 8, padding: '10px 14px', opacity: 0.75, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: 13, color: isApproved ? '#15803d' : '#b91c1c' }}>
+          {isApproved ? '✓' : '✗'} {isApproved ? 'Approved' : 'Rejected'}
+          {decided.actor ? ` by ${decided.actor}` : ''}
+        </span>
+        <span style={{ fontSize: 11, color: '#a8a29e', fontFamily: "'JetBrains Mono', monospace" }}>
+          {new Date(decided.timestamp).toLocaleTimeString()}
+        </span>
       </div>
     )
   }
@@ -31,62 +28,71 @@ export function ApprovalCard({ event, onApprove, onReject, decided }: ApprovalCa
   const stats = proposed_changes.stats
 
   return (
-    <div className="bg-slate-800 border-2 border-indigo-500 rounded-lg p-4">
-      <h3 className="text-indigo-300 font-semibold text-base mb-4">⏳ Awaiting Human Approval</h3>
+    <div style={{ background: '#fff', border: '1px solid #fde68a', borderLeft: '4px solid #b45309', borderRadius: 8, padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-      <div className="mb-4">
-        <p className="text-slate-300 text-sm font-medium mb-1">Proposed Changes</p>
-        <p className="text-slate-400 text-sm mb-2">{proposed_changes.description}</p>
-        {proposed_changes.files_to_modify.length > 0 && (
-          <ul className="text-slate-400 text-sm mb-2 space-y-0.5 list-disc list-inside">
-            {proposed_changes.files_to_modify.map(f => (
-              <li key={f} className="font-mono text-xs">{f}</li>
-            ))}
-          </ul>
-        )}
-        <div className="flex gap-4 text-xs text-slate-500 mt-1">
-          {Object.entries(stats).map(([k, v]) => (
-            <span key={k}>{k}: <span className="text-slate-300">{v}</span></span>
-          ))}
-        </div>
+      <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 20, color: '#1c1917' }}>
+        Awaiting your decision
       </div>
 
+      <div style={{ fontSize: 12, color: '#57534e', lineHeight: 1.6 }}>
+        {proposed_changes.description}
+      </div>
+
+      {/* Stat grid */}
+      <div style={{ display: 'flex', gap: 20 }}>
+        {Object.entries(stats).map(([k, v]) => (
+          <div key={k} style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <span style={{ fontSize: 22, color: '#1c1917', fontFamily: "'DM Serif Display', serif" }}>{v}</span>
+            <span style={{ fontSize: 10, color: '#a8a29e', textTransform: 'uppercase' as const, letterSpacing: '.08em' }}>{k}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Files to modify */}
+      {proposed_changes.files_to_modify.length > 0 && (
+        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {proposed_changes.files_to_modify.map(f => (
+            <li key={f} style={{ fontSize: 11, color: '#78716c', fontFamily: "'JetBrains Mono', monospace" }}>{f}</li>
+          ))}
+        </ul>
+      )}
+
+      {/* Reply draft */}
       {reply_draft && (
-        <div className="mb-4 border border-slate-600 rounded p-3">
-          <p className="text-slate-500 text-xs mb-1">Reply draft</p>
-          <p className="text-slate-400 text-sm italic">{reply_draft}</p>
+        <div style={{ border: '1px solid #e7e5e4', borderRadius: 6, padding: '10px 12px' }}>
+          <div style={{ fontSize: 10, color: '#a8a29e', marginBottom: 4 }}>Reply draft</div>
+          <div style={{ fontSize: 11, color: '#57534e', fontStyle: 'italic' }}>{reply_draft}</div>
         </div>
       )}
 
+      {/* Guardrails */}
       {guardrails.length > 0 && (
-        <div className="mb-4">
-          <p className="text-slate-300 text-sm font-medium mb-1">Guardrails</p>
-          <ul className="space-y-1">
-            {guardrails.map((g, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-slate-400">
-                <span className="text-green-400 mt-0.5">✓</span>
-                {g}
-              </li>
-            ))}
-          </ul>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {guardrails.map((g, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ color: '#15803d', flexShrink: 0, fontSize: 11 }}>✓</span>
+              <span style={{ fontSize: 11, color: '#57534e' }}>{g}</span>
+            </div>
+          ))}
         </div>
       )}
 
-      <div className="flex gap-2 mt-2">
+      {/* Actions */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <button
           onClick={onApprove}
-          className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded text-sm font-medium"
+          style={{ background: '#b45309', color: '#fffdf7', fontSize: 12, fontWeight: 600, padding: '8px 18px', borderRadius: 6, border: 'none', cursor: 'pointer' }}
         >
           Approve &amp; Run
         </button>
         <button
-          className="border border-slate-600 text-slate-300 hover:text-slate-100 hover:border-slate-500 px-4 py-2 rounded text-sm"
+          style={{ background: 'transparent', color: '#78716c', fontSize: 12, padding: '8px 14px', borderRadius: 6, border: '1px solid #e7e5e4', cursor: 'pointer' }}
         >
           Edit Preview
         </button>
         <button
           onClick={onReject}
-          className="border border-slate-600 text-slate-300 hover:text-red-400 hover:border-red-500 px-4 py-2 rounded text-sm"
+          style={{ background: 'transparent', color: '#b91c1c', fontSize: 12, padding: '8px 14px', borderRadius: 6, border: '1px solid #fca5a5', marginLeft: 'auto', cursor: 'pointer' }}
         >
           Reject
         </button>
