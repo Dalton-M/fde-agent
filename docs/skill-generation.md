@@ -41,6 +41,18 @@ python -m autoskill_agent.cli skillgen-approve match_daily_cash_reconciliation_e
 python -m autoskill_agent.cli skillgen-skillops
 ```
 
+To use the local Qwen planner for the review-generation step, first check the configured local endpoint:
+
+```powershell
+python -m autoskill_agent.cli skillgen-model-check
+```
+
+Then run review generation with:
+
+```powershell
+python -m autoskill_agent.cli skillgen-review --candidate-id cand_daily_cash_recon_001 --planner local-model
+```
+
 ## Generated Bundle
 
 ```text
@@ -86,6 +98,33 @@ handoff.required_confirmation_fields -> review requirements
 Section B never executes from the Section A candidate directly. It creates a review session first, then generates the skill only after the required fields are confirmed.
 
 For local e2e testing, `skillgen-seed-section-a` stages a source workbook under `workspace/workbooks/`, inspects its `.xlsx` sheet package, writes `workspace/events/skill_candidates.jsonl`, creates a mock inbound email event, and creates a CSV-shaped transaction attachment with an `.xlsx` filename for the dependency-free demo executor.
+
+## Local Model Planner
+
+Skill generation has two planner modes:
+
+```text
+deterministic  -> pure Python fallback, no model call
+local-model    -> OpenAI-compatible local model call using config/openclaw.json
+```
+
+`local-model` reads the OpenClaw config and calls:
+
+```text
+http://127.0.0.1:11434/v1/chat/completions
+model: qwen3-30b-a3b-local
+```
+
+The model is only allowed to refine bounded review fields:
+
+```text
+description
+workflow_steps
+expected_outcome
+validation_rules
+```
+
+It cannot change triggers, permissions, approval mode, source files, or install status. Model output is parsed as JSON, sanitized, and checked for invariants such as human approval before write, no email sending, no network use, and a reconciled spreadsheet output. If the model endpoint is unavailable or the output fails validation, Section B falls back to the deterministic planner.
 
 ## Skill Output Shape
 

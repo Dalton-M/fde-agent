@@ -81,4 +81,13 @@ python -m autoskill_agent.cli skillgen-demo --reset
 
 It consumes a `PatternCandidate`, creates a human review session, compiles `skill.yaml`, writes the skill bundle, registers it in SQLite, matches a new inbound finance email event, previews execution, requires approval, writes local outputs, validates the run, and records SkillOps metrics.
 
+The default planner is deterministic and does not call a model. To use the local Qwen model through the OpenClaw/Ollama-compatible config:
+
+```powershell
+python -m autoskill_agent.cli skillgen-model-check
+python -m autoskill_agent.cli skillgen-review --candidate-id cand_daily_cash_recon_001 --planner local-model
+```
+
+The local model planner can refine only the review-facing description, workflow steps, expected outcome, and validation rule names. The generated skill is still schema-validated before install, and invalid or unavailable model output falls back to deterministic generation.
+
 See `docs/skill-generation.md` for the step-by-step commands and generated artifact map.

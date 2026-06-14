@@ -80,7 +80,12 @@ def cmd_skillgen_seed_section_a(args: argparse.Namespace) -> int:
 
 
 def cmd_skillgen_review(args: argparse.Namespace) -> int:
-    review = skillgen.create_review_session(args.root, args.candidate_id)
+    review = skillgen.create_review_session(
+        args.root,
+        args.candidate_id,
+        planner=args.planner,
+        model_timeout_seconds=args.model_timeout,
+    )
     print(json.dumps(review, indent=2))
     return 0
 
@@ -119,8 +124,19 @@ def cmd_skillgen_skillops(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_skillgen_model_check(args: argparse.Namespace) -> int:
+    result = skillgen.check_local_model(args.root, timeout_seconds=args.model_timeout)
+    print(json.dumps(result, indent=2))
+    return 0 if result["status"] == "ok" else 2
+
+
 def cmd_skillgen_demo(args: argparse.Namespace) -> int:
-    result = skillgen.run_full_skillgen_demo(args.root, force=args.reset)
+    result = skillgen.run_full_skillgen_demo(
+        args.root,
+        force=args.reset,
+        planner=args.planner,
+        model_timeout_seconds=args.model_timeout,
+    )
     print(json.dumps(result, indent=2))
     return 0
 
@@ -172,6 +188,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     skillgen_review = subparsers.add_parser("skillgen-review", help="Start review from a Section A skill candidate.")
     skillgen_review.add_argument("--candidate-id", default="cand_daily_cash_recon_001")
+    skillgen_review.add_argument("--planner", choices=["deterministic", "local-model"], default="deterministic")
+    skillgen_review.add_argument("--model-timeout", type=int, default=180)
     skillgen_review.set_defaults(func=cmd_skillgen_review)
 
     skillgen_install = subparsers.add_parser("skillgen-install", help="Submit default feedback and install skill.")
@@ -194,8 +212,14 @@ def build_parser() -> argparse.ArgumentParser:
     skillgen_skillops = subparsers.add_parser("skillgen-skillops", help="Show SkillOps metrics and recommendations.")
     skillgen_skillops.set_defaults(func=cmd_skillgen_skillops)
 
+    skillgen_model_check = subparsers.add_parser("skillgen-model-check", help="Check local model connectivity.")
+    skillgen_model_check.add_argument("--model-timeout", type=int, default=60)
+    skillgen_model_check.set_defaults(func=cmd_skillgen_model_check)
+
     skillgen_demo = subparsers.add_parser("skillgen-demo", help="Run Team B skill-generation demo end-to-end.")
     skillgen_demo.add_argument("--reset", action="store_true")
+    skillgen_demo.add_argument("--planner", choices=["deterministic", "local-model"], default="deterministic")
+    skillgen_demo.add_argument("--model-timeout", type=int, default=180)
     skillgen_demo.set_defaults(func=cmd_skillgen_demo)
 
     return parser

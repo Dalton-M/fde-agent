@@ -65,6 +65,64 @@ class SkillGenerationTests(unittest.TestCase):
             self.assertEqual(review["suggested"]["inputs"][1]["path"], "workspace/workbooks/cash_recon.xlsx")
             self.assertGreater(len(review["suggested"]["workflow_steps"]), 7)
 
+    def test_merges_valid_model_plan_into_review_suggestions(self) -> None:
+        candidate = skillgen.default_section_a_skill_candidate()
+        review = skillgen.build_section_a_review("review_cand_daily_cash_recon_001", candidate)
+        model_steps = [dict(step) for step in review["suggested"]["workflow_steps"]]
+        model_steps[0]["title"] = "Parse inbound bank file"
+        model_steps[0]["summary"] = "Read and normalize the bank file rows for reconciliation."
+        plan = {
+            "description": "Model-refined local cash reconciliation workflow.",
+            "workflow_steps": model_steps,
+            "expected_outcome": {
+                "summary": "Creates a reconciled spreadsheet and local draft reply.",
+                "files_created": [
+                    "workspace/workbooks/generated/skillforge_finance_demo_cash_recon_{event_date}_reconciled.xlsx",
+                    "workspace/mail/drafts/{skill_id}_{event_date}_reply.eml",
+                ],
+                "files_modified": [
+                    "workspace/workbooks/skillforge_finance_demo_cash_recon.skill_updates.jsonl",
+                    "workspace/events/events.jsonl",
+                ],
+                "side_effects": ["Email remains a draft and is not sent"],
+            },
+            "validation_rules": ["model confirms approval gate"],
+        }
+
+        suggested, applied, warnings = skillgen.merge_model_plan_into_suggested(review["suggested"], plan)
+
+        self.assertIn("workflow_steps", applied)
+        self.assertIn("expected_outcome", applied)
+        self.assertEqual(suggested["description"], "Model-refined local cash reconciliation workflow.")
+        self.assertEqual(suggested["workflow_steps"][0]["title"], "Parse inbound bank file")
+        self.assertIn("model_confirms_approval_gate", suggested["validation_rules"])
+        self.assertFalse([warning for warning in warnings if "failed" in warning])
+
+    def test_invalid_model_plan_falls_back_to_deterministic_steps(self) -> None:
+        candidate = skillgen.default_section_a_skill_candidate()
+        review = skillgen.build_section_a_review("review_cand_daily_cash_recon_001", candidate)
+        plan = {
+            "workflow_steps": [
+                {
+                    "id": "write_without_approval",
+                    "order": 1,
+                    "title": "Write without approval",
+                    "type": "write_output",
+                    "summary": "Unsafe write.",
+                    "inputs": [],
+                    "outputs": ["reconciled_spreadsheet"],
+                    "action_type": "write_xlsx_update",
+                }
+            ],
+            "expected_outcome": {},
+            "validation_rules": [],
+        }
+
+        suggested, _applied, warnings = skillgen.merge_model_plan_into_suggested(review["suggested"], plan)
+
+        self.assertEqual(suggested["workflow_steps"], review["suggested"]["workflow_steps"])
+        self.assertTrue(any("too few" in warning or "approval-before-write" in warning for warning in warnings))
+
     def test_matches_previews_executes_and_tracks_skillops(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

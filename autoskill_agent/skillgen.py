@@ -3,10 +3,14 @@ from __future__ import annotations
 import csv
 import fnmatch
 import json
+import os
 import re
 import shutil
 import sqlite3
+import urllib.error
+import urllib.request
 import zipfile
+from copy import deepcopy
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -81,6 +85,16 @@ ALLOWED_EXECUTOR_ACTIONS = {
     "write_audit_log",
 }
 
+ALLOWED_WORKFLOW_STEP_TYPES = {
+    "read_input",
+    "transform",
+    "analyze",
+    "draft_output",
+    "human_approval",
+    "write_output",
+    "validate",
+}
+
 SKILL_SCHEMA_VERSION = "skill.workflow.v1"
 
 
@@ -99,6 +113,15 @@ class SkillGenPaths:
     registry_db: Path
     event_log: Path
     skill_candidates_log: Path
+
+
+@dataclass(frozen=True)
+class LocalModelConfig:
+    backend: str
+    base_url: str
+    api_key: str
+    model: str
+    timeout_seconds: int = 180
 
 
 def paths(root: Path | str = ".") -> SkillGenPaths:
@@ -175,6 +198,99 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
         except json.JSONDecodeError as exc:
             raise ValueError(f"Invalid JSONL in {path} at line {line_number}: {exc}") from exc
     return rows
+
+
+def local_model_config(root: Path | str = ".", timeout_seconds: int = 180) -> LocalModelConfig:
+    root_path = Path(root)
+    config_path = root_path / "config" / "openclaw.json"
+    if config_path.exists():
+        config = read_json(config_path)
+        primary = (
+            config.get("agents", {})
+            .get("defaults", {})
+            .get("model", {})
+            .get("primary", os.environ.get("QWEN_MODEL_TAG", "qwen3-30b-a3b-local"))
+        )
+        provider_name, model = split_provider_model(primary)
+        provider = config.get("models", {}).get("providers", {}).get(provider_name, {})
+        return LocalModelConfig(
+            backend="openclaw-config-openai-compatible",
+            base_url=provider.get("baseUrl", "http://127.0.0.1:11434/v1").rstrip("/"),
+            api_key=provider.get("apiKey", os.environ.get("OLLAMA_API_KEY", "ollama-local")),
+            model=model,
+            timeout_seconds=timeout_seconds,
+        )
+    return LocalModelConfig(
+        backend="ollama-openai-compatible",
+        base_url=os.environ.get("SKILLGEN_MODEL_BASE_URL", "http://127.0.0.1:11434/v1").rstrip("/"),
+        api_key=os.environ.get("SKILLGEN_MODEL_API_KEY", os.environ.get("OLLAMA_API_KEY", "ollama-local")),
+        model=os.environ.get("SKILLGEN_MODEL", os.environ.get("QWEN_MODEL_TAG", "qwen3-30b-a3b-local")),
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def split_provider_model(value: str) -> tuple[str, str]:
+    if "/" in value:
+        provider, model = value.split("/", 1)
+        return provider, model
+    return "ollama", value
+
+
+def call_local_chat_model(
+    config: LocalModelConfig,
+    messages: list[dict[str, str]],
+    response_format: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "model": config.model,
+        "messages": messages,
+        "temperature": 0.1,
+        "stream": False,
+    }
+    if response_format:
+        payload["response_format"] = response_format
+    body = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        f"{config.base_url}/chat/completions",
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {config.api_key}",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=config.timeout_seconds) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Local model call failed via {config.base_url}: {exc}") from exc
+
+
+def local_model_text_response(response: dict[str, Any]) -> str:
+    choices = response.get("choices", [])
+    if not choices:
+        raise RuntimeError("Local model response did not include choices")
+    message = choices[0].get("message", {})
+    content = message.get("content", "")
+    if not content:
+        raise RuntimeError("Local model response did not include message content")
+    return content
+
+
+def parse_json_object(text: str) -> dict[str, Any]:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```(?:json)?\s*", "", stripped, flags=re.IGNORECASE)
+        stripped = re.sub(r"\s*```$", "", stripped)
+    if not stripped.startswith("{"):
+        start = stripped.find("{")
+        end = stripped.rfind("}")
+        if start >= 0 and end > start:
+            stripped = stripped[start : end + 1]
+    payload = json.loads(stripped)
+    if not isinstance(payload, dict):
+        raise ValueError("Expected a JSON object")
+    return payload
 
 
 def default_pattern_candidate() -> dict[str, Any]:
@@ -868,7 +984,12 @@ def validate_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
     return {"status": "ok", "missing_fields": []}
 
 
-def create_review_session(root: Path | str, candidate_id: str) -> dict[str, Any]:
+def create_review_session(
+    root: Path | str,
+    candidate_id: str,
+    planner: str = "deterministic",
+    model_timeout_seconds: int = 180,
+) -> dict[str, Any]:
     p = paths(root)
     candidate = load_candidate(root, candidate_id)
     validation = validate_candidate(candidate)
@@ -880,6 +1001,7 @@ def create_review_session(root: Path | str, candidate_id: str) -> dict[str, Any]
         review = build_section_a_review(review_id, candidate)
     else:
         review = build_legacy_review(review_id, candidate)
+    review = apply_skill_planner(root, candidate, review, planner=planner, model_timeout_seconds=model_timeout_seconds)
     p.reviews_dir.mkdir(parents=True, exist_ok=True)
     write_json(p.reviews_dir / f"{review_id}.json", review)
     update_candidate_status(root, candidate_id, "accepted_for_skill_generation")
@@ -969,6 +1091,238 @@ def build_section_a_review(review_id: str, candidate: dict[str, Any]) -> dict[st
             "trigger_label": suggested_skill["trigger"],
         },
     }
+
+
+def apply_skill_planner(
+    root: Path | str,
+    candidate: dict[str, Any],
+    review: dict[str, Any],
+    planner: str = "deterministic",
+    model_timeout_seconds: int = 180,
+) -> dict[str, Any]:
+    if planner == "deterministic":
+        review["planner"] = {"mode": "deterministic", "status": "applied"}
+        return review
+    if planner != "local-model":
+        review["planner"] = {"mode": planner, "status": "fallback", "error": f"unknown planner: {planner}"}
+        return review
+
+    config = local_model_config(root, timeout_seconds=model_timeout_seconds)
+    try:
+        plan = request_model_skill_plan(config, candidate, review["suggested"])
+        suggested, applied_fields, warnings = merge_model_plan_into_suggested(review["suggested"], plan)
+        review["suggested"] = suggested
+        review["planner"] = {
+            "mode": "local-model",
+            "status": "applied",
+            "backend": config.backend,
+            "base_url": config.base_url,
+            "model": config.model,
+            "applied_fields": applied_fields,
+            "warnings": warnings,
+        }
+    except Exception as exc:
+        review["planner"] = {
+            "mode": "local-model",
+            "status": "fallback",
+            "backend": config.backend,
+            "base_url": config.base_url,
+            "model": config.model,
+            "error": str(exc),
+        }
+    return review
+
+
+def request_model_skill_plan(
+    config: LocalModelConfig,
+    candidate: dict[str, Any],
+    suggested: dict[str, Any],
+) -> dict[str, Any]:
+    response = call_local_chat_model(
+        config,
+        model_planner_messages(candidate, suggested),
+        response_format={"type": "json_object"},
+    )
+    return parse_json_object(local_model_text_response(response))
+
+
+def model_planner_messages(candidate: dict[str, Any], suggested: dict[str, Any]) -> list[dict[str, str]]:
+    payload = {
+        "section_a_candidate": candidate,
+        "deterministic_base_plan": {
+            "description": suggested.get("description"),
+            "workflow_steps": suggested.get("workflow_steps"),
+            "expected_outcome": suggested.get("expected_outcome"),
+            "validation_rules": suggested.get("validation_rules"),
+            "forbidden_actions": suggested.get("forbidden_actions"),
+            "resources": {
+                "inputs": suggested.get("inputs"),
+                "outputs": suggested.get("outputs"),
+            },
+        },
+        "allowed_step_types": sorted(ALLOWED_WORKFLOW_STEP_TYPES),
+        "allowed_action_types": sorted(ALLOWED_EXECUTOR_ACTIONS),
+        "required_invariants": [
+            "Return only valid JSON.",
+            "Preserve the schema shape used by deterministic_base_plan.",
+            "Keep one human_approval step before any write_output step.",
+            "Keep a write_output step that creates a reconciled spreadsheet.",
+            "Keep a validate step that writes audit/SkillOps evidence.",
+            "Do not send email automatically.",
+            "Do not access the network.",
+            "Do not overwrite reviewed rows or closed-period rows.",
+        ],
+    }
+    system = (
+        "You are SkillForge Local's offline skill planner. Refine workflow text for human review "
+        "while preserving local safety invariants. Do not invent network, email-send, or destructive actions."
+    )
+    user = (
+        "Refine the deterministic skill plan for human review. Return a JSON object with exactly these top-level keys: "
+        "description, workflow_steps, expected_outcome, validation_rules. "
+        "workflow_steps must be an array of objects with id, order, title, type, summary, inputs, outputs, "
+        "and optional action_type, target, requires_step, approval_text. "
+        "expected_outcome must contain summary, files_created, files_modified, side_effects.\n\n"
+        + json.dumps(payload, indent=2, sort_keys=True)
+    )
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+def merge_model_plan_into_suggested(
+    suggested: dict[str, Any],
+    plan: dict[str, Any],
+) -> tuple[dict[str, Any], list[str], list[str]]:
+    updated = deepcopy(suggested)
+    applied_fields: list[str] = []
+    warnings: list[str] = []
+
+    description = plan.get("description")
+    if isinstance(description, str) and description.strip():
+        updated["description"] = description.strip()
+        applied_fields.append("description")
+    else:
+        warnings.append("description missing or invalid")
+
+    steps, step_warnings = sanitize_model_workflow_steps(plan.get("workflow_steps"), suggested.get("workflow_steps", []))
+    warnings.extend(step_warnings)
+    if steps:
+        updated["workflow_steps"] = steps
+        applied_fields.append("workflow_steps")
+
+    expected_outcome, outcome_warnings = sanitize_model_expected_outcome(
+        plan.get("expected_outcome"),
+        suggested.get("expected_outcome", {}),
+    )
+    warnings.extend(outcome_warnings)
+    if expected_outcome:
+        updated["expected_outcome"] = expected_outcome
+        applied_fields.append("expected_outcome")
+
+    validation_rules = sanitize_model_validation_rules(
+        plan.get("validation_rules"),
+        suggested.get("validation_rules", []),
+    )
+    if validation_rules != suggested.get("validation_rules", []):
+        updated["validation_rules"] = validation_rules
+        applied_fields.append("validation_rules")
+
+    return updated, applied_fields, warnings
+
+
+def sanitize_model_workflow_steps(raw_steps: Any, fallback_steps: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    warnings: list[str] = []
+    if not isinstance(raw_steps, list):
+        return deepcopy(fallback_steps), ["workflow_steps missing or not a list"]
+
+    sanitized = []
+    for raw_step in raw_steps:
+        if not isinstance(raw_step, dict):
+            warnings.append("ignored non-object workflow step")
+            continue
+        step_id = slugify(str(raw_step.get("id") or raw_step.get("title") or "generated_step"))
+        step_type = raw_step.get("type")
+        if step_type not in ALLOWED_WORKFLOW_STEP_TYPES:
+            warnings.append(f"step {step_id} has invalid type {step_type}; using transform")
+            step_type = "transform"
+        step = {
+            "id": step_id,
+            "order": int(raw_step.get("order") or len(sanitized) + 1),
+            "title": str(raw_step.get("title") or sentence_title(step_id.replace("_", " "))).strip(),
+            "type": step_type,
+            "summary": str(raw_step.get("summary") or f"Perform {step_id.replace('_', ' ')}.").strip(),
+            "inputs": sanitize_string_list(raw_step.get("inputs")),
+            "outputs": sanitize_string_list(raw_step.get("outputs")),
+        }
+        action_type = raw_step.get("action_type")
+        if action_type in ALLOWED_EXECUTOR_ACTIONS:
+            step["action_type"] = action_type
+        elif action_type:
+            warnings.append(f"step {step_id} dropped invalid action_type {action_type}")
+        for optional_key in ["target", "requires_step", "approval_text", "template"]:
+            value = raw_step.get(optional_key)
+            if isinstance(value, dict | str):
+                step[optional_key] = deepcopy(value)
+        sanitized.append(step)
+
+    if len(sanitized) < 3:
+        return deepcopy(fallback_steps), warnings + ["model returned too few valid workflow steps"]
+
+    sanitized.sort(key=lambda item: item["order"])
+    for order, step in enumerate(sanitized, start=1):
+        step["order"] = order
+
+    approval_orders = [step["order"] for step in sanitized if step["type"] == "human_approval" or step.get("action_type") == "require_human_approval"]
+    write_orders = [step["order"] for step in sanitized if step["type"] == "write_output" or step.get("action_type") == "write_xlsx_update"]
+    validate_orders = [step["order"] for step in sanitized if step["type"] == "validate" or step.get("action_type") == "write_audit_log"]
+    if not approval_orders or not write_orders or min(write_orders) < min(approval_orders):
+        return deepcopy(fallback_steps), warnings + ["model workflow failed approval-before-write invariant"]
+    if not validate_orders:
+        return deepcopy(fallback_steps), warnings + ["model workflow missing validate/audit step"]
+    if not any("reconciled" in " ".join(step.get("outputs", []) + [step["title"], step["summary"]]).lower() for step in sanitized):
+        return deepcopy(fallback_steps), warnings + ["model workflow missing reconciled spreadsheet output"]
+    return sanitized, warnings
+
+
+def sanitize_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def sanitize_model_expected_outcome(raw_outcome: Any, fallback: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    if not isinstance(raw_outcome, dict):
+        return deepcopy(fallback), ["expected_outcome missing or not an object"]
+    outcome = {
+        "summary": str(raw_outcome.get("summary") or fallback.get("summary") or "").strip(),
+        "files_created": sanitize_string_list(raw_outcome.get("files_created")),
+        "files_modified": sanitize_string_list(raw_outcome.get("files_modified")),
+        "side_effects": sanitize_string_list(raw_outcome.get("side_effects")),
+    }
+    warnings = []
+    if not outcome["files_created"]:
+        outcome["files_created"] = list(fallback.get("files_created", []))
+        warnings.append("expected_outcome.files_created missing; using fallback")
+    if not any("reconciled" in item.lower() and item.lower().endswith(".xlsx") for item in outcome["files_created"]):
+        outcome["files_created"] = list(fallback.get("files_created", []))
+        warnings.append("expected_outcome missing reconciled xlsx output; using fallback files_created")
+    if not outcome["files_modified"]:
+        outcome["files_modified"] = list(fallback.get("files_modified", []))
+        warnings.append("expected_outcome.files_modified missing; using fallback")
+    if not outcome["side_effects"]:
+        outcome["side_effects"] = list(fallback.get("side_effects", []))
+        warnings.append("expected_outcome.side_effects missing; using fallback")
+    return outcome, warnings
+
+
+def sanitize_model_validation_rules(raw_rules: Any, fallback_rules: list[str]) -> list[str]:
+    rules = list(fallback_rules)
+    if not isinstance(raw_rules, list):
+        return rules
+    for item in raw_rules:
+        rule = slugify(str(item))
+        if rule and rule not in rules:
+            rules.append(rule)
+    return rules[:80]
 
 
 def normalize_trigger(suggested_trigger: dict[str, Any]) -> dict[str, Any]:
@@ -2741,10 +3095,45 @@ def skillops_recommendations(summaries: list[dict[str, Any]]) -> list[str]:
     return recommendations
 
 
-def run_full_skillgen_demo(root: Path | str = ".", force: bool = False) -> dict[str, Any]:
+def check_local_model(root: Path | str = ".", timeout_seconds: int = 60) -> dict[str, Any]:
+    config = local_model_config(root, timeout_seconds=timeout_seconds)
+    try:
+        response = call_local_chat_model(
+            config,
+            [
+                {"role": "system", "content": "Reply only as JSON."},
+                {"role": "user", "content": "{\"status\":\"ready\"}"},
+            ],
+            response_format={"type": "json_object"},
+        )
+        text = local_model_text_response(response)
+        payload = parse_json_object(text)
+        return {
+            "status": "ok",
+            "backend": config.backend,
+            "base_url": config.base_url,
+            "model": config.model,
+            "response": payload,
+        }
+    except Exception as exc:
+        return {
+            "status": "unavailable",
+            "backend": config.backend,
+            "base_url": config.base_url,
+            "model": config.model,
+            "error": str(exc),
+        }
+
+
+def run_full_skillgen_demo(
+    root: Path | str = ".",
+    force: bool = False,
+    planner: str = "deterministic",
+    model_timeout_seconds: int = 180,
+) -> dict[str, Any]:
     bootstrap = bootstrap_demo(root, force=force)
     candidate = default_pattern_candidate()
-    review = create_review_session(root, candidate["candidate_id"])
+    review = create_review_session(root, candidate["candidate_id"], planner=planner, model_timeout_seconds=model_timeout_seconds)
     feedback = default_human_feedback(root, review["review_session_id"])
     submit_feedback(root, review["review_session_id"], feedback)
     install = install_skill(root, review["review_session_id"])
