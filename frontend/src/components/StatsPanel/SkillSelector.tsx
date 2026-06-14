@@ -22,7 +22,18 @@ export default function SkillSelector({ skills, selectedId, onChange }: SkillSel
     <select
       value={selectedId}
       onChange={(e) => onChange(e.target.value)}
-      className="bg-slate-800 border border-slate-600 text-slate-200 rounded px-2 py-1 text-sm w-full"
+      style={{
+        background: '#fff',
+        border: '1px solid #fde68a',
+        color: '#1c1917',
+        borderRadius: 7,
+        padding: '8px 10px',
+        fontSize: 12,
+        fontWeight: 600,
+        fontFamily: "'DM Sans', sans-serif",
+        width: '100%',
+        cursor: 'pointer',
+      }}
     >
       {skills.map((skill) => (
         <option key={skill.skill_id} value={skill.skill_id}>
