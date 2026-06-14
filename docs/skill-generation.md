@@ -21,6 +21,26 @@ It does not mine raw patterns. It consumes Section A repeated-pattern candidates
 
 ## Run The Demo
 
+Run the live email intake path:
+
+```powershell
+python -m autoskill_agent.cli imap-poll --once --openclaw-mode openclaw
+python -m autoskill_agent.cli email-to-excel --workbook workspace/workbooks/onboarding_tracker.xlsx --yes
+```
+
+The first command fetches unread IMAP messages, sends each parsed email to OpenClaw for local extraction/classification, and appends `email_received` records to `workspace/events/activity_events.jsonl`. The second command writes approved matching email events into Excel and appends `spreadsheet_row_updated` records to the same activity log, giving Section A the email-to-spreadsheet workflow evidence it needs.
+
+Run the integrated Section A -> Section B path:
+
+```powershell
+cd D:\hackathon
+python -m autoskill_agent.cli skillgen-section-a-demo --reset --execute
+```
+
+This is the preferred hackathon demo path. It starts with Section A activity events, writes `workspace/events/workflow_episodes.jsonl`, writes `workspace/events/skill_candidates.jsonl`, and then runs the Team B skill-generation flow from that candidate.
+
+Run the Team B-only seeded demo:
+
 ```powershell
 cd D:\hackathon
 python -m autoskill_agent.cli skillgen-demo --reset
@@ -39,6 +59,18 @@ python -m autoskill_agent.cli skillgen-match
 python -m autoskill_agent.cli skillgen-preview match_daily_cash_reconciliation_event_email_bank_2026_06_15
 python -m autoskill_agent.cli skillgen-approve match_daily_cash_reconciliation_event_email_bank_2026_06_15
 python -m autoskill_agent.cli skillgen-skillops
+```
+
+Integrated Section A command:
+
+```powershell
+python -m autoskill_agent.cli skillgen-section-a-demo --reset --execute
+```
+
+Optional arguments:
+
+```powershell
+python -m autoskill_agent.cli skillgen-section-a-demo --events workspace/events/activity_events.jsonl --workbook workspace/workbooks/skillforge_finance_demo_cash_recon.xlsx --reset --execute
 ```
 
 ## Generated Bundle
