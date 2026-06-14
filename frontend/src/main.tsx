@@ -7,7 +7,7 @@ import './index.css'
 const queryClient = new QueryClient()
 
 async function prepare() {
-  if (import.meta.env.DEV) {
+  if (import.meta.env.DEV && import.meta.env.VITE_USE_MOCKS === '1') {
     const { worker } = await import('./mocks/browser')
     return worker.start({ onUnhandledRequest: 'bypass' })
   }

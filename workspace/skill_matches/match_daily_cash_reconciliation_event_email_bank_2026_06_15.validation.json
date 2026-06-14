@@ -21,6 +21,10 @@
       "status": "passed"
     },
     {
+      "name": "generated_spreadsheet_contains_run_output",
+      "status": "passed"
+    },
+    {
       "name": "exception_count_matches_summary",
       "status": "passed"
     },

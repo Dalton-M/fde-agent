@@ -12,6 +12,6 @@
   "preview_path": "D:\\hackathon\\workspace\\skill_matches\\match_daily_cash_reconciliation_event_email_bank_2026_06_15.preview.json",
   "skill_id": "daily_cash_reconciliation",
   "skill_version": 1,
-  "status": "executed",
+  "status": "awaiting_approval",
   "trigger_event_id": "event_email_bank_2026_06_15"
 }

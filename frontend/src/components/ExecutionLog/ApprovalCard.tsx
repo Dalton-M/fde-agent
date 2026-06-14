@@ -2,95 +2,124 @@ import type { ApprovalRequiredEvent } from '../../types/skill'
 
 interface ApprovalCardProps {
   event: ApprovalRequiredEvent
-  matchId: string
   onApprove: () => void
   onReject: () => void
   decided?: { decision: 'approved' | 'rejected'; actor?: string; timestamp: string } | null
 }
 
+function labelForStat(key: string): string {
+  switch (key) {
+    case 'total':
+      return 'Records'
+    case 'matched':
+      return 'Automated'
+    case 'exceptions':
+      return 'Review'
+    default:
+      return key.replace(/_/g, ' ')
+  }
+}
+
+function fileName(path: string): string {
+  return path.split(/[\\/]/).pop() ?? path
+}
+
+function cleanGuardrail(text: string): string {
+  const labels: Record<string, string> = {
+    'No email will be sent': 'No email is sent automatically',
+    'No network access': 'No external network access',
+    'No closed-period sheets modified': 'Protected files are left unchanged',
+    'Human approval required before write': 'Review required before writing files',
+  }
+  return labels[text] ?? text
+}
+
 export function ApprovalCard({ event, onApprove, onReject, decided }: ApprovalCardProps) {
+  const { proposed_changes, guardrails } = event
+  const orderedStats = ['total', 'matched', 'exceptions']
+    .filter(key => key in proposed_changes.stats)
+    .map(key => [key, proposed_changes.stats[key]] as const)
+  const total = Number(proposed_changes.stats.total ?? 0)
+  const matched = Number(proposed_changes.stats.matched ?? 0)
+  const exceptions = Number(proposed_changes.stats.exceptions ?? 0)
+  const exceptionWord = exceptions === 1 ? 'item' : 'items'
+
   if (decided) {
-    const isApproved = decided.decision === 'approved'
+    const approved = decided.decision === 'approved'
     return (
-      <div className="bg-slate-800 border border-slate-700 rounded-lg p-3 opacity-75">
-        <div className="flex items-center justify-between">
-          <span className={isApproved ? 'text-green-400' : 'text-red-400'}>
-            {isApproved ? '✓' : '✗'}{' '}
-            {isApproved ? 'Approved' : 'Rejected'}
-            {decided.actor ? ` by ${decided.actor}` : ''}
-          </span>
-          <span className="text-slate-500 text-xs">
-            {new Date(decided.timestamp).toLocaleTimeString()}
-          </span>
+      <article className={`approval-result ${approved ? 'approved' : 'rejected'}`}>
+        <div>
+          <p className="eyebrow">Review result</p>
+          <h3>{approved ? 'Run approved' : 'Run declined'}</h3>
         </div>
-      </div>
+        <span>{decided.actor ? `${decided.actor} at ` : ''}{new Date(decided.timestamp).toLocaleTimeString()}</span>
+      </article>
     )
   }
 
-  const { proposed_changes, guardrails, reply_draft } = event
-  const stats = proposed_changes.stats
-
   return (
-    <div className="bg-slate-800 border-2 border-indigo-500 rounded-lg p-4">
-      <h3 className="text-indigo-300 font-semibold text-base mb-4">⏳ Awaiting Human Approval</h3>
-
-      <div className="mb-4">
-        <p className="text-slate-300 text-sm font-medium mb-1">Proposed Changes</p>
-        <p className="text-slate-400 text-sm mb-2">{proposed_changes.description}</p>
-        {proposed_changes.files_to_modify.length > 0 && (
-          <ul className="text-slate-400 text-sm mb-2 space-y-0.5 list-disc list-inside">
-            {proposed_changes.files_to_modify.map(f => (
-              <li key={f} className="font-mono text-xs">{f}</li>
-            ))}
-          </ul>
-        )}
-        <div className="flex gap-4 text-xs text-slate-500 mt-1">
-          {Object.entries(stats).map(([k, v]) => (
-            <span key={k}>{k}: <span className="text-slate-300">{v}</span></span>
-          ))}
+    <article className="approval-card">
+      <div className="approval-header">
+        <div>
+          <p className="eyebrow">Approval required</p>
+          <h3>Approve this generated skill run</h3>
         </div>
+        <span className="review-indicator" aria-label="Waiting for review" />
       </div>
 
-      {reply_draft && (
-        <div className="mb-4 border border-slate-600 rounded p-3">
-          <p className="text-slate-500 text-xs mb-1">Reply draft</p>
-          <p className="text-slate-400 text-sm italic">{reply_draft}</p>
+      <p className="approval-description">
+        The agent found {total} records in this repeated workflow. It can handle {matched} automatically and leaves {exceptions} {exceptionWord} for review.
+      </p>
+
+      <div className="stat-grid">
+        {orderedStats.map(([key, value]) => (
+          <div className="stat-tile" key={key}>
+            <span>{labelForStat(key)}</span>
+            <strong>{value}</strong>
+          </div>
+        ))}
+      </div>
+
+      {proposed_changes.exceptions && proposed_changes.exceptions.length > 0 && (
+        <div className="exception-box">
+          <h4>Items to review</h4>
+          {proposed_changes.exceptions.map((item, index) => (
+            <div className="exception-row" key={`${item.transaction_id ?? index}`}>
+              <strong>{item.transaction_id ?? `Exception ${index + 1}`}</strong>
+              <span>{item.description}</span>
+              <span>{item.bank_amount} vs {item.erp_amount}</span>
+            </div>
+          ))}
         </div>
       )}
 
-      {guardrails.length > 0 && (
-        <div className="mb-4">
-          <p className="text-slate-300 text-sm font-medium mb-1">Guardrails</p>
-          <ul className="space-y-1">
-            {guardrails.map((g, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-slate-400">
-                <span className="text-green-400 mt-0.5">✓</span>
-                {g}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <div className="file-section">
+        <h4>Files to create</h4>
+        {proposed_changes.files_to_create.map(path => (
+          <div className="file-row" key={path}>
+            <span>{fileName(path)}</span>
+            <small>{path}</small>
+          </div>
+        ))}
+      </div>
 
-      <div className="flex gap-2 mt-2">
-        <button
-          onClick={onApprove}
-          className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded text-sm font-medium"
-        >
-          Approve &amp; Run
+      <div className="guardrail-box">
+        <h4>Safety checks</h4>
+        <ul>
+          {guardrails.map(item => (
+            <li key={item}>{cleanGuardrail(item)}</li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="action-row">
+        <button className="primary-button" onClick={onApprove}>
+          Approve and run
         </button>
-        <button
-          className="border border-slate-600 text-slate-300 hover:text-slate-100 hover:border-slate-500 px-4 py-2 rounded text-sm"
-        >
-          Edit Preview
-        </button>
-        <button
-          onClick={onReject}
-          className="border border-slate-600 text-slate-300 hover:text-red-400 hover:border-red-500 px-4 py-2 rounded text-sm"
-        >
+        <button className="secondary-button danger" onClick={onReject}>
           Reject
         </button>
       </div>
-    </div>
+    </article>
   )
 }

@@ -4,36 +4,45 @@ interface ValidationCardProps {
   event: ValidationResultEvent
 }
 
+function humanCheckName(name: string): string {
+  const labels: Record<string, string> = {
+    workbook_can_be_reopened: 'Created file opens correctly',
+    only_allowed_sheets_modified: 'Only intended content changed',
+    no_closed_period_sheets_modified: 'Protected content unchanged',
+    no_reviewed_rows_overwritten: 'Reviewed rows preserved',
+    reconciled_spreadsheet_created: 'Output file created',
+    generated_spreadsheet_contains_run_output: 'Generated spreadsheet contains run output',
+    exception_count_matches_summary: 'Exception count matches summary',
+    draft_created_but_not_sent: 'Draft saved but not sent',
+    audit_log_written: 'Run record saved',
+  }
+  return labels[name] ?? name.replace(/_/g, ' ')
+}
+
 export function ValidationCard({ event }: ValidationCardProps) {
   const passed = event.status === 'passed'
 
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-lg p-4">
-      <div className="flex items-center justify-between mb-3">
-        <span className="font-semibold text-slate-100">Validation</span>
-        <span
-          className={`text-xs font-bold px-2 py-0.5 rounded ${
-            passed ? 'bg-green-900 text-green-400' : 'bg-red-900 text-red-400'
-          }`}
-        >
-          {passed ? 'PASSED' : 'FAILED'}
+    <article className="validation-card">
+      <div className="card-title-row">
+        <div>
+          <p className="eyebrow">Final checks</p>
+          <h3>{passed ? 'Everything passed' : 'Needs attention'}</h3>
+        </div>
+        <span className={`validation-badge ${passed ? 'passed' : 'failed'}`}>
+          {passed ? 'Passed' : 'Failed'}
         </span>
       </div>
 
-      <ul className="space-y-1.5">
-        {event.checks.map((check, i) => {
-          const ok = check.status === 'passed'
-          return (
-            <li key={i} className="flex items-start gap-2 text-sm">
-              <span className={ok ? 'text-green-400' : 'text-red-400'}>{ok ? '✓' : '✗'}</span>
-              <span className="text-slate-300">{check.name}</span>
-              {check.detail && (
-                <span className="text-slate-500 text-xs mt-0.5">— {check.detail}</span>
-              )}
-            </li>
-          )
-        })}
-      </ul>
-    </div>
+      <div className="check-grid">
+        {event.checks.map(check => (
+          <div className="check-row" key={check.name}>
+            <span className={`check-dot ${check.status}`} />
+            <span>{humanCheckName(check.name)}</span>
+            {check.detail && <small>{check.detail}</small>}
+          </div>
+        ))}
+      </div>
+    </article>
   )
 }

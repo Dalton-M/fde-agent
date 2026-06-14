@@ -1,161 +1,153 @@
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import FlowTimeline from './components/FlowTimeline/FlowTimeline'
+import { useMemo, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExecutionLog } from './components/ExecutionLog/ExecutionLog'
 import StatsPanel from './components/StatsPanel/StatsPanel'
 import { useSkillStream } from './hooks/useSkillStream'
 import { listMatches, approveMatch, rejectMatch } from './api/skillops'
-import { POST_APPROVAL_EVENTS } from './mocks/handlers'
-import type { SkillStep, ExecutionEvent } from './types/skill'
+import type { ApprovalRequiredEvent, ExecutionCompleteEvent, ExecutionEvent } from './types/skill'
 
-// The 7 steps of the Daily Cash Reconciliation Skill (from skill.yaml)
-const SKILL_STEPS: SkillStep[] = [
-  { id: 'trigger', type: 'email_trigger', label: 'Trigger', sublabel: 'email_received' },
-  { id: 'parse_bank_transactions', type: 'parse_xlsx_attachment', label: 'Parse', sublabel: 'xlsx_attachment' },
-  { id: 'build_reconciliation_preview', type: 'preview_reconciliation_update', label: 'Preview', sublabel: 'recon_update' },
-  { id: 'require_approval', type: 'require_human_approval', label: 'Approval', sublabel: 'human_review' },
-  { id: 'write_workbook_update', type: 'write_xlsx_update', label: 'Execute', sublabel: 'write_xlsx' },
-  { id: 'validate', type: 'validate', label: 'Validate', sublabel: '7 checks' },
-  { id: 'write_audit_log', type: 'write_audit_log', label: 'Audit', sublabel: 'audit_log' },
-]
+function latestApproval(events: ExecutionEvent[]): ApprovalRequiredEvent | null {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]
+    if (event.type === 'approval_required') return event
+  }
+  return null
+}
 
-export default function App() {
-  const [selectedSkillId, setSelectedSkillId] = useState('daily_cash_reconciliation')
-  const [decision, setDecision] = useState<{ decision: 'approved' | 'rejected'; actor?: string; timestamp: string } | null>(null)
-  const [extraEvents, setExtraEvents] = useState<ExecutionEvent[]>([])
-  const [executionStartedAt] = useState(() => new Date().toISOString())
+function latestCompletion(events: ExecutionEvent[]): ExecutionCompleteEvent | null {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]
+    if (event.type === 'execution_complete') return event
+  }
+  return null
+}
 
-  // Load pending matches
-  const { data: matches } = useQuery({
-    queryKey: ['matches'],
-    queryFn: listMatches,
-  })
-
-  const matchId = matches?.[0]?.match_id ?? null
-
-  // SSE stream
-  const { events: streamEvents, activeStepIndex, status } = useSkillStream(matchId)
-
-  // Merge SSE events + post-approval events
-  const allEvents: ExecutionEvent[] = [...streamEvents, ...extraEvents]
-
-  // Compute completed step count from unique step_completed events
-  const completedStepIds = new Set(
-    allEvents.filter(e => e.type === 'step_completed').map(e => (e as { step_id: string }).step_id)
-  )
-  const completedCount = completedStepIds.size
-
-  // Compute elapsed per step
-  const elapsedPerStep: Record<string, number> = {}
-  for (const e of allEvents) {
-    if (e.type === 'step_completed') {
-      const ev = e as { step_id: string; elapsed_ms: number }
-      elapsedPerStep[ev.step_id] = ev.elapsed_ms
+function latestOutputRaw(events: ExecutionEvent[]): Record<string, unknown> | null {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]
+    if (event.type === 'step_completed' && event.step_id === 'create_reconciled_spreadsheet') {
+      return event.raw ?? null
     }
   }
+  return null
+}
 
-  // Current step label for progress bar
-  const hasApprovalPending = allEvents.some(e => e.type === 'approval_required') && !decision
-  const currentStepLabel = status === 'done'
-    ? '✓ Complete'
-    : hasApprovalPending
-    ? '⏳ Awaiting Approval'
-    : status === 'connecting'
-    ? 'Connecting…'
-    : SKILL_STEPS[activeStepIndex]?.label ?? ''
+function numberFrom(raw: Record<string, unknown> | null, key: string): number | null {
+  const value = raw?.[key]
+  return typeof value === 'number' ? value : null
+}
 
-  // After approval: stream POST_APPROVAL_EVENTS with delays
-  function streamPostApprovalEvents() {
-    ;(POST_APPROVAL_EVENTS as unknown as ExecutionEvent[]).forEach((event, i) => {
-      setTimeout(() => {
-        setExtraEvents(prev => [...prev, event])
-      }, (i + 1) * 1500)
-    })
-  }
+function stringFrom(raw: Record<string, unknown> | null, key: string): string | null {
+  const value = raw?.[key]
+  return typeof value === 'string' ? value : null
+}
+
+function progressLabel(status: ReturnType<typeof useSkillStream>['status']): string {
+  if (status === 'done') return 'Complete'
+  if (status === 'paused') return 'Review stage'
+  if (status === 'connecting') return 'Connecting'
+  if (status === 'error') return 'Needs attention'
+  if (status === 'streaming') return 'Generating'
+  return 'Ready'
+}
+
+export default function App() {
+  const queryClient = useQueryClient()
+  const [localDecision, setLocalDecision] = useState<{ decision: 'approved' | 'rejected'; actor?: string; timestamp: string } | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  const { data: matches, isLoading } = useQuery({
+    queryKey: ['matches'],
+    queryFn: listMatches,
+    refetchInterval: 10_000,
+  })
+
+  const match = matches?.[0] ?? null
+  const matchId = match?.match_id ?? null
+  const { events, status, error } = useSkillStream(matchId)
+
+  const approvalEvent = latestApproval(events)
+  const completionEvent = latestCompletion(events)
+  const outputRaw = latestOutputRaw(events)
+  const decision = localDecision ?? completionEvent
+  const currentStepLabel = progressLabel(status)
+
+  const runStats = useMemo(() => {
+    const stats = approvalEvent?.proposed_changes.stats
+    if (!stats) return null
+    return {
+      total: numberFrom(outputRaw, 'rows_added') ?? Number(stats.total ?? 0),
+      matched: numberFrom(outputRaw, 'matched_count') ?? Number(stats.matched ?? 0),
+      exceptions: numberFrom(outputRaw, 'exception_count') ?? Number(stats.exceptions ?? 0),
+      outputFile: stringFrom(outputRaw, 'workbook_created') ?? approvalEvent.proposed_changes.files_to_create[0] ?? '',
+    }
+  }, [approvalEvent, outputRaw])
 
   async function handleApprove() {
     if (!matchId) return
+    setActionError(null)
     try {
       await approveMatch(matchId)
-    } catch {
-      // MSW mock — ignore errors
+      setLocalDecision({ decision: 'approved', actor: 'analyst_1', timestamp: new Date().toISOString() })
+      await queryClient.invalidateQueries({ queryKey: ['matches'] })
+      await queryClient.invalidateQueries({ queryKey: ['skillops'] })
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'The run could not be approved.')
     }
-    setDecision({ decision: 'approved', actor: 'analyst_1', timestamp: new Date().toISOString() })
-    streamPostApprovalEvents()
   }
 
   async function handleReject() {
     if (!matchId) return
+    setActionError(null)
     try {
       await rejectMatch(matchId)
-    } catch {
-      // MSW mock — ignore errors
+      setLocalDecision({ decision: 'rejected', actor: 'analyst_1', timestamp: new Date().toISOString() })
+      await queryClient.invalidateQueries({ queryKey: ['matches'] })
+      await queryClient.invalidateQueries({ queryKey: ['skillops'] })
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'The run could not be rejected.')
     }
-    setDecision({ decision: 'rejected', actor: 'analyst_1', timestamp: new Date().toISOString() })
   }
 
   return (
-    <div className="h-screen flex flex-col bg-slate-900 text-slate-100 overflow-hidden">
-      {/* Sticky header: FlowTimeline + breadcrumb bar */}
-      <div className="sticky top-0 z-10 shrink-0">
-        <FlowTimeline
-          steps={SKILL_STEPS}
-          activeStepIndex={activeStepIndex}
-          completedCount={completedCount}
-          currentStepLabel={currentStepLabel}
-          elapsedPerStep={elapsedPerStep}
-        />
-
-        {/* Header bar */}
-        <div className="flex items-center gap-4 px-8 py-4 border-b border-slate-700 bg-slate-900 shrink-0" style={{ minHeight: 52 }}>
-          <span className="text-sm text-slate-500 font-medium tracking-wide whitespace-nowrap">SkillForge</span>
-          <span className="text-slate-600 text-base px-1">›</span>
-          <span className="text-sm text-slate-300 font-semibold whitespace-nowrap">Daily Cash Reconciliation Skill</span>
-          {matchId && (
-            <>
-              <span className="text-slate-600 text-base px-1">›</span>
-              <span className="text-sm text-slate-500 font-mono truncate max-w-xs">{matchId}</span>
-            </>
-          )}
-          <div className="ml-auto flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${
-              status === 'streaming' ? 'bg-green-400 animate-pulse' :
-              status === 'done' ? 'bg-indigo-400' :
-              status === 'error' ? 'bg-red-400' :
-              'bg-slate-600'
-            }`} />
-            <span className="text-xs text-slate-500 capitalize">{status}</span>
-          </div>
+    <div className="app-shell">
+      <header className="app-header">
+        <div>
+          <p className="eyebrow">Pattern to automation</p>
+          <h1>Auto-skill generator</h1>
+          <p className="header-subtitle">
+            Detects repeated user behavior, drafts a reusable workflow, and asks before running it.
+          </p>
         </div>
-      </div>
+        <div className={`status-pill status-${status}`}>
+          <span className="status-dot" />
+          <span>{currentStepLabel}</span>
+        </div>
+      </header>
 
-      {/* Main row: execution log + stats panel */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Execution log */}
-        <div className="flex-1 overflow-y-auto p-6">
-          {!matchId ? (
-            <div className="flex items-center justify-center h-32 text-slate-500 text-sm">
-              Loading skill match…
-            </div>
+      <main className="main-layout">
+        <section className="execution-region">
+          {isLoading || !matchId ? (
+            <div className="empty-state">Loading the latest detected pattern.</div>
           ) : (
             <ExecutionLog
-              events={allEvents}
-              matchId={matchId}
+              events={events}
               onApprove={handleApprove}
               onReject={handleReject}
               decision={decision}
               status={status}
+              error={error}
+              actionError={actionError}
             />
           )}
-        </div>
+        </section>
 
-        {/* Stats panel */}
         <StatsPanel
-          selectedSkillId={selectedSkillId}
-          onSkillChange={setSelectedSkillId}
-          executionStartedAt={executionStartedAt}
+          skillId={match?.skill_id ?? 'daily_cash_reconciliation'}
+          runStats={runStats}
+          status={status}
         />
-      </div>
+      </main>
     </div>
   )
 }

@@ -2852,17 +2852,18 @@ def approve_match(root: Path | str, match_id: str, actor: str = "analyst_1") -> 
     preview = read_json(p.matches_dir / f"{match_id}.preview.json")
     trigger_event = find_event(root, match["trigger_event_id"])
     date_slug = event_date_slug(trigger_event)
-    output_workbook_rel = output_workbook_path_for_run(workbook_path, date_slug)
-    output_workbook_path = p.root / output_workbook_rel
-    output_workbook_path.parent.mkdir(parents=True, exist_ok=True)
-    if output_workbook_path.exists():
-        output_workbook_path.chmod(0o666)
-        output_workbook_path.unlink()
+    output_workbook_rel, output_workbook_path = prepare_output_workbook_path(
+        p.root,
+        output_workbook_path_for_run(workbook_path, date_slug),
+    )
     source_workbook_path = p.root / workbook_path
     if source_workbook_path.exists():
         shutil.copy2(source_workbook_path, output_workbook_path)
+        output_workbook_path.chmod(0o666)
     else:
         output_workbook_path.write_text("Generated reconciled spreadsheet placeholder.\n", encoding="utf-8")
+    execution_timestamp = utc_now()
+    workbook_change = write_demo_workbook_output(output_workbook_path, preview, match_id, actor, execution_timestamp)
     draft_path = p.drafts_dir / f"cash_recon_{date_slug}_reply.eml"
     draft_path.parent.mkdir(parents=True, exist_ok=True)
     draft_path.write_text(preview["proposed_reply_draft"] + "\n", encoding="utf-8")
@@ -2886,7 +2887,7 @@ def approve_match(root: Path | str, match_id: str, actor: str = "analyst_1") -> 
         "skill_id": skill_id,
         "skill_version": skill["version"],
         "actor": actor,
-        "timestamp": utc_now(),
+        "timestamp": execution_timestamp,
         "trigger_event_id": match["trigger_event_id"],
         "decision": "approved",
         "outputs": {
@@ -2895,6 +2896,9 @@ def approve_match(root: Path | str, match_id: str, actor: str = "analyst_1") -> 
             "rows_added": preview["proposed_workbook_update"]["import_transactions"],
             "matched_count": preview["proposed_workbook_update"]["matched_count"],
             "exception_count": preview["proposed_workbook_update"]["exception_count"],
+            "changed_sheets": workbook_change["changed_sheets"],
+            "cells_written": workbook_change["cells_written"],
+            "summary_sheet": workbook_change["summary_sheet"],
             "draft_created": draft_path.relative_to(p.root).as_posix(),
         },
         "validation": {"status": validation["validation_status"]},
@@ -2990,7 +2994,100 @@ def event_date_slug(event: dict[str, Any]) -> str:
     return "unknown_date"
 
 
+def prepare_output_workbook_path(root: Path, rel_path: str) -> tuple[str, Path]:
+    output_path = root / rel_path
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if not output_path.exists():
+        return rel_path, output_path
+    parent_rel = Path(rel_path).parent
+    for index in range(2, 100):
+        candidate_rel = (parent_rel / f"{output_path.stem}_{index}{output_path.suffix}").as_posix()
+        candidate_path = root / candidate_rel
+        if not candidate_path.exists():
+            return candidate_rel, candidate_path
+    raise FileExistsError(f"No available generated workbook path for {rel_path}")
+
+
+def write_demo_workbook_output(
+    output_workbook_path: Path,
+    preview: dict[str, Any],
+    match_id: str,
+    actor: str,
+    timestamp: str,
+) -> dict[str, Any]:
+    try:
+        from openpyxl import Workbook, load_workbook
+    except Exception:
+        return {"changed_sheets": [], "cells_written": 0, "summary_sheet": ""}
+
+    if not output_workbook_path.exists() or output_workbook_path.suffix.lower() != ".xlsx":
+        return {"changed_sheets": [], "cells_written": 0, "summary_sheet": ""}
+
+    try:
+        wb = load_workbook(output_workbook_path)
+    except Exception:
+        wb = Workbook()
+        default_sheet = wb.active
+        default_sheet.title = str(preview["proposed_workbook_update"].get("target_sheet", "Generated Output"))[:31]
+    summary_sheet = "Skill Run Output"
+    if summary_sheet in wb.sheetnames:
+        del wb[summary_sheet]
+    ws = wb.create_sheet(summary_sheet, 0)
+    update = preview["proposed_workbook_update"]
+    rows = [
+        ("Generated skill run", ""),
+        ("Match ID", match_id),
+        ("Approved by", actor),
+        ("Updated at", timestamp),
+        ("Records processed", update["import_transactions"]),
+        ("Automated records", update["matched_count"]),
+        ("Items needing review", update["exception_count"]),
+        ("Target sheet", update["target_sheet"]),
+    ]
+    for row_index, (label, value) in enumerate(rows, start=1):
+        ws.cell(row=row_index, column=1, value=label)
+        ws.cell(row=row_index, column=2, value=value)
+    next_row = len(rows) + 2
+    ws.cell(row=next_row, column=1, value="Review item")
+    ws.cell(row=next_row, column=2, value="Description")
+    ws.cell(row=next_row, column=3, value="Observed")
+    ws.cell(row=next_row, column=4, value="Expected")
+    for offset, item in enumerate(update.get("exceptions", []), start=1):
+        row = next_row + offset
+        ws.cell(row=row, column=1, value=item.get("transaction_id"))
+        ws.cell(row=row, column=2, value=item.get("description"))
+        ws.cell(row=row, column=3, value=item.get("bank_amount"))
+        ws.cell(row=row, column=4, value=item.get("erp_amount"))
+    for column in "ABCD":
+        ws.column_dimensions[column].width = 24
+    target_sheet = str(update.get("target_sheet", ""))
+    changed_sheets = [summary_sheet]
+    if target_sheet in wb.sheetnames:
+        target_ws = wb[target_sheet]
+        row = target_ws.max_row + 2
+        target_ws.cell(row=row, column=1, value="Skill run output")
+        target_ws.cell(row=row, column=2, value=match_id)
+        target_ws.cell(row=row, column=3, value=f"{update['matched_count']} automated")
+        target_ws.cell(row=row, column=4, value=f"{update['exception_count']} review")
+        changed_sheets.append(target_sheet)
+    wb.save(output_workbook_path)
+    cells_written = len(rows) * 2 + 4 + (len(update.get("exceptions", [])) * 4)
+    if len(changed_sheets) > 1:
+        cells_written += 4
+    return {"changed_sheets": changed_sheets, "cells_written": cells_written, "summary_sheet": summary_sheet}
+
+
 def validate_execution(root: Path | str, preview: dict[str, Any], draft_path: Path, output_workbook_path: Path | None = None) -> dict[str, Any]:
+    summary_sheet_present = False
+    if output_workbook_path is not None and output_workbook_path.exists() and output_workbook_path.suffix.lower() == ".xlsx":
+        try:
+            from openpyxl import load_workbook
+
+            wb = load_workbook(output_workbook_path, read_only=True)
+            summary_sheet_present = "Skill Run Output" in wb.sheetnames
+            wb.close()
+        except Exception:
+            summary_sheet_present = False
     checks = [
         {"name": "workbook_can_be_reopened", "status": "passed"},
         {"name": "only_allowed_sheets_modified", "status": "passed"},
@@ -2999,6 +3096,10 @@ def validate_execution(root: Path | str, preview: dict[str, Any], draft_path: Pa
         {
             "name": "reconciled_spreadsheet_created",
             "status": "passed" if output_workbook_path is not None and output_workbook_path.exists() else "failed",
+        },
+        {
+            "name": "generated_spreadsheet_contains_run_output",
+            "status": "passed" if summary_sheet_present else "failed",
         },
         {
             "name": "exception_count_matches_summary",

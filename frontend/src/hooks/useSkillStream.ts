@@ -1,10 +1,11 @@
 import { useEffect, useReducer, useRef } from 'react'
 import type { ExecutionEvent } from '../types/skill'
+import { apiUrl } from '../api/client'
 
 interface UseSkillStreamResult {
   events: ExecutionEvent[]
-  activeStepIndex: number   // index of current step (from latest step_started); -1 if none yet
-  status: 'idle' | 'connecting' | 'streaming' | 'done' | 'error'
+  activeStepIndex: number
+  status: 'idle' | 'connecting' | 'streaming' | 'paused' | 'done' | 'error'
   error?: string
 }
 
@@ -31,7 +32,10 @@ function skillStreamReducer(state: SkillStreamState, action: SkillStreamAction):
     case 'event': {
       const events = [...state.events, action.event]
       if (action.event.type === 'step_started') {
-        return { ...state, events, activeStepIndex: action.event.step_index }
+        return { ...state, events, activeStepIndex: action.event.step_index, status: 'streaming' }
+      }
+      if (action.event.type === 'approval_required') {
+        return { ...state, events, activeStepIndex: action.event.step_index, status: 'paused' }
       }
       if (action.event.type === 'execution_complete') {
         return { ...state, events, status: 'done' }
@@ -39,6 +43,7 @@ function skillStreamReducer(state: SkillStreamState, action: SkillStreamAction):
       return { ...state, events }
     }
     case 'error':
+      if (state.status === 'done') return state
       return { ...state, status: 'error', error: action.error }
   }
 }
@@ -52,7 +57,7 @@ export function useSkillStream(matchId: string | null): UseSkillStreamResult {
 
     dispatch({ type: 'connect' })
 
-    const es = new EventSource(`/api/skills/matches/${matchId}/stream`)
+    const es = new EventSource(apiUrl(`/api/skills/matches/${matchId}/stream`))
     esRef.current = es
 
     es.onopen = () => dispatch({ type: 'open' })

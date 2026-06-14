@@ -123,6 +123,28 @@ python -m autoskill_agent.cli skillgen-demo --reset
 
 It consumes a `PatternCandidate`, creates a human review session, compiles `skill.yaml`, writes the skill bundle, registers it in SQLite, matches a new inbound finance email event, previews execution, requires approval, writes local outputs, validates the run, and records SkillOps metrics.
 
+Run the frontend against the local backend:
+
+```powershell
+cd D:\hackathon
+python -m autoskill_agent.api_server --host 127.0.0.1 --port 8017
+```
+
+In another PowerShell window:
+
+```powershell
+cd D:\hackathon\frontend
+npm ci
+npm run dev -- --host 127.0.0.1 --port 5174
+```
+
+Open `http://127.0.0.1:5174`. The Vite dev server proxies `/api` to the SkillForge backend on port `8017`. To return the demo match to the human-approval state before presenting:
+
+```powershell
+cd D:\hackathon
+python -m autoskill_agent.cli skillgen-preview match_daily_cash_reconciliation_event_email_bank_2026_06_15
+```
+
 The default planner is deterministic and does not call a model. To use the local Qwen model through the OpenClaw/Ollama-compatible config:
 
 ```powershell

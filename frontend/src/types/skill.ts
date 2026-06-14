@@ -1,28 +1,36 @@
-// A single action step from skill.yaml
 export interface SkillStep {
   id: string
   type: string
-  label: string        // human-readable name (e.g. "Parse", "Approval")
-  sublabel?: string    // e.g. action type ("xlsx_attachment", "require_human_approval")
+  label: string
+  sublabel?: string
 }
 
-// A trigger match — skill matched an incoming event
 export interface SkillMatch {
   match_id: string
   skill_id: string
   skill_version: number
   trigger_event_id: string
-  matched_at: string   // ISO timestamp
+  matched_at: string
   match_confidence: number
   match_reasons: string[]
-  status: 'awaiting_preview' | 'previewing' | 'awaiting_approval' | 'approved' | 'rejected' | 'executing' | 'done' | 'failed'
+  status:
+    | 'awaiting_preview'
+    | 'previewing'
+    | 'awaiting_approval'
+    | 'approved'
+    | 'rejected'
+    | 'executing'
+    | 'executed'
+    | 'done'
+    | 'failed'
   skill_name: string
 }
 
-// SSE event types emitted during skill execution
 export type ExecutionEventType =
   | 'step_started'
   | 'step_completed'
+  | 'pattern_detected'
+  | 'skill_generated'
   | 'approval_required'
   | 'execution_complete'
   | 'validation_result'
@@ -30,7 +38,7 @@ export type ExecutionEventType =
 export interface StepStartedEvent {
   type: 'step_started'
   step_id: string
-  step_index: number   // 0-based
+  step_index: number
   label: string
   sublabel?: string
   timestamp: string
@@ -41,10 +49,63 @@ export interface StepCompletedEvent {
   step_id: string
   step_index: number
   label: string
-  summary: string      // human-readable result line
+  summary: string
   elapsed_ms: number
   timestamp: string
-  raw?: Record<string, unknown>  // optional raw output for collapsible JSON
+  raw?: Record<string, unknown>
+}
+
+export interface PatternDetectedEvent {
+  type: 'pattern_detected'
+  timestamp: string
+  title: string
+  summary: string
+  confidence: number
+  episode_count: number
+  sequence: string[]
+  signals: string[]
+  issues: string[]
+  evidence: {
+    episodes: string[]
+    common_fields: string[]
+    target?: string
+  }
+  next_trigger?: {
+    event_id?: string
+    target_rows?: string
+    unprocessed_action_columns?: string[]
+  }
+}
+
+export interface SkillWorkflowStep {
+  order: number
+  title: string
+  summary: string
+  type?: string
+}
+
+export interface SkillTriggerCondition {
+  label?: string
+  field?: string
+  operator?: string
+  value?: string | number | boolean | Record<string, unknown>
+  type?: string
+}
+
+export interface SkillGeneratedEvent {
+  type: 'skill_generated'
+  timestamp: string
+  title: string
+  summary: string
+  issues: string[]
+  triggers: SkillTriggerCondition[]
+  steps: SkillWorkflowStep[]
+  expected_outcome: {
+    summary: string
+    files_created: string[]
+    files_modified: string[]
+    safety_checks: string[]
+  }
 }
 
 export interface ApprovalRequiredEvent {
@@ -53,8 +114,10 @@ export interface ApprovalRequiredEvent {
   timestamp: string
   proposed_changes: {
     description: string
+    files_to_create: string[]
     files_to_modify: string[]
-    stats: Record<string, string | number>  // e.g. { matched: 148, exceptions: 4 }
+    stats: Record<string, string | number>
+    exceptions?: Array<Record<string, string | number>>
   }
   guardrails: string[]
   reply_draft?: string
@@ -77,26 +140,25 @@ export interface ValidationResultEvent {
 export type ExecutionEvent =
   | StepStartedEvent
   | StepCompletedEvent
+  | PatternDetectedEvent
+  | SkillGeneratedEvent
   | ApprovalRequiredEvent
   | ExecutionCompleteEvent
   | ValidationResultEvent
 
-// SkillOps statistics for a skill
 export interface SkillOpsMetrics {
   skill_id: string
   skill_name: string
   users: number
   matches: number
   runs: number
-  run_rate: number      // 0–1
-  success_rate: number  // 0–1
-  reject_rate: number   // 0–1
-  last_used: string     // ISO timestamp or relative string
+  run_rate: number
+  success_rate: number
+  reject_rate: number
+  last_used: string
   status: 'active' | 'beta' | 'team_standard' | 'needs_refinement' | 'disabled'
-  started_at?: string   // ISO timestamp of current execution start, for elapsed timer
 }
 
-// List item for the skill selector dropdown
 export interface SkillSummary {
   skill_id: string
   skill_name: string
