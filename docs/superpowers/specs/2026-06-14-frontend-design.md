@@ -43,14 +43,16 @@ Three font roles loaded from Google Fonts. Add to `index.html`:
 ```html
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=DM+Serif+Display:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 ```
 
 | Role | Family | Weights | Used for |
 |---|---|---|---|
-| Display | Fraunces | 600, 700 | Brand name in header, approval card headline ("Awaiting your decision"), metric numbers in stats panel |
-| Body / UI | Inter | 400, 500, 600, 700 | All labels, descriptions, button text, sublabels, progress labels |
+| Display | DM Serif Display | 400 (regular and italic) | Brand name in header, approval card headline ("Awaiting your decision"), metric numbers in stats panel |
+| Body / UI | DM Sans | 400, 500, 600, 700 | All labels, descriptions, button text, sublabels, progress labels |
 | Mono | JetBrains Mono | 400, 500 | Match IDs, file paths, elapsed times |
+
+DM Serif Display and DM Sans are the same type family, so they pair without friction — the contrast between the display serif and the clean sans carries the design's personality.
 
 ### Scale
 
@@ -112,7 +114,7 @@ Two sub-rows, no vertical padding between them — they read as a unified header
 - Brand mark: 28×28px amber (`#b45309`) rounded square (border-radius 7px), letter "S" in Fraunces 13px white — left edge
 - Brand name: "SkillForge" in Fraunces 17px weight-600 `#1c1917`, letter-spacing -0.02em
 - Separator: "/" in `#d6d3d1`, padding 0 2px
-- Skill name: "Daily Cash Reconciliation" in Inter 13px weight-500 `#57534e`
+- Skill name: "Daily Cash Reconciliation" in DM Serif Display 16px `#57534e` — matches the brand name's serif register
 - Status (right-aligned, `margin-left: auto`):
   - 7×7px dot: green `#22c55e` with `box-shadow: 0 0 0 3px rgba(34,197,94,.2)` when streaming; amber when active; slate when idle
   - Status label: Inter 11px `#a8a29e` ("streaming" / "done" / "connecting")
