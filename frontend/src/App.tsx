@@ -155,7 +155,7 @@ export default function App() {
               onApprove={handleApprove}
               onReject={handleReject}
               decision={decision}
-              status={status}
+              status={status === 'idle' ? undefined : status}
             />
           )}
         </div>
