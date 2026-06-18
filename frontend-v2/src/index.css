@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+#root {
+  zoom: 1.25;
+}
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: #fffdf7;
+  color: #1c1917;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: 'DM Sans', sans-serif;
+  cursor: pointer;
+}
+
+pre {
+  background: #f0ece4;
+  color: #1c1917;
+  border: 1px solid #e7e5e4;
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 11px;
+  overflow-x: auto;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+@keyframes skillforge-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.3); }
+  50%       { box-shadow: 0 0 0 4px rgba(217, 119, 6, 0.1); }
+}
